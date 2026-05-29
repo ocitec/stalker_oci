@@ -1,0 +1,148 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-0:     #0C0F1A;
+  --bg-1:     #131929;
+  --bg-2:     #1A2236;
+  --bg-3:     #1F2B42;
+  --border:   #2A3A5C;
+  --border-2: #334466;
+  --text:     #E8EDF8;
+  --text-2:   #8B9DC3;
+  --text-3:   #5A6E96;
+  --amber:    #F59E0B;
+  --amber-2:  #FCD34D;
+  --green:    #10B981;
+  --red:      #F43F5E;
+  --blue:     #3B82F6;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background: var(--bg-0);
+  color:      var(--text);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar            { width: 4px; height: 4px; }
+::-webkit-scrollbar-track      { background: var(--bg-1); }
+::-webkit-scrollbar-thumb      { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover{ background: var(--border-2); }
+
+/* ── Skeleton shimmer ─────────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #1A2236 25%, #1F2B42 50%, #1A2236 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+}
+
+/* ── Page fade-in (was missing — fixes all dashboard pages) ───────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.22s ease-out both;
+}
+
+/* ── Slide-in from right (drawer) ─────────────────────────────────────────── */
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.animate-slide-right {
+  animation: slideInRight 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Modal scale-in ────────────────────────────────────────────────────────── */
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+.animate-scale-in {
+  animation: scaleIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Overlay backdrop ─────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── Number / monospace font ──────────────────────────────────────────────── */
+.mono { font-family: var(--font-geist-mono), 'SF Mono', monospace; }
+
+/* ── Card ─────────────────────────────────────────────────────────────────── */
+.card {
+  background:    var(--bg-1);
+  border:        1px solid var(--border);
+  border-radius: 12px;
+}
+.card:hover { border-color: var(--border-2); }
+
+/* ── Form input base (shared across modals) ───────────────────────────────── */
+.form-input {
+  width:         100%;
+  padding:       8px 12px;
+  border-radius: 8px;
+  font-size:     13px;
+  outline:       none;
+  transition:    border-color 0.15s;
+  background:    var(--bg-2);
+  border:        1px solid var(--border);
+  color:         var(--text);
+}
+.form-input:focus {
+  border-color: var(--amber);
+}
+.form-input::placeholder {
+  color: var(--text-3);
+}
+.form-label {
+  display:       block;
+  font-size:     11px;
+  margin-bottom: 5px;
+  color:         var(--text-3);
+  font-weight:   500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.form-error {
+  font-size:  10px;
+  color:      #F43F5E;
+  margin-top: 3px;
+}
+
+/* ── Status pills ─────────────────────────────────────────────────────────── */
+.status-overdue     { background: rgba(244,63,94,0.12);  color: #F43F5E; }
+.status-due-today   { background: rgba(245,158,11,0.12); color: #F59E0B; }
+.status-approaching { background: rgba(59,130,246,0.12); color: #3B82F6; }
+.status-clear       { background: rgba(16,185,129,0.12); color: #10B981; }
+.status-paid        { background: rgba(90,110,150,0.15); color: #5A6E96; }

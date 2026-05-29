@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  industry  String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  clients   Client[]
+  users     User[]
+
+  @@index([name])
+  @@map("organizations")
+}
+
+model User {
+  id             String         @id @default(cuid())
+  name           String
+  email          String         @unique
+  passwordHash   String         @map("password_hash")
+  role           UserRole       @default(FINANCE)
+  organizationId String         @map("organization_id")
+  isActive       Boolean        @default(true) @map("is_active")
+  lastLoginAt    DateTime?      @map("last_login_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  auditLogs      AuditLog[]
+  followUps      FollowUp[]
+  refreshTokens  RefreshToken[]
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+
+  @@index([email])
+  @@index([organizationId])
+  @@index([role])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Client {
+  id                     String         @id @default(cuid())
+  organizationId         String         @map("organization_id")
+  name                   String
+  companyRegistration    String?        @unique @map("company_registration")
+  email                  String?
+  phone                  String?
+  sector                 String?
+  creditLimit            Decimal        @default(0) @map("credit_limit") @db.Decimal(15, 2)
+  slaDays                Int            @default(30) @map("sla_days")
+  paymentDisciplineIndex Decimal        @default(100) @map("payment_discipline_index") @db.Decimal(5, 2)
+  riskStatus             ClientRisk     @default(RELIABLE) @map("risk_status")
+  isBlocked              Boolean        @default(false) @map("is_blocked")
+  blockedReason          String?        @map("blocked_reason")
+  notes                  String?
+  createdAt              DateTime       @default(now()) @map("created_at")
+  updatedAt              DateTime       @updatedAt @map("updated_at")
+  organization           Organization   @relation(fields: [organizationId], references: [id])
+  invoices               Invoice[]
+  slaViolations          SlaViolation[]
+
+  @@index([organizationId])
+  @@index([riskStatus])
+  @@index([paymentDisciplineIndex])
+  @@index([isBlocked])
+  @@map("clients")
+}
+
+model Invoice {
+  id            String         @id @default(cuid())
+  clientId      String         @map("client_id")
+  invoiceNumber String         @unique @map("invoice_number")
+  invoiceAmount Decimal        @map("invoice_amount") @db.Decimal(15, 2)
+  invoiceDate   DateTime       @map("invoice_date")
+  dueDate       DateTime       @map("due_date")
+  status        InvoiceStatus  @default(PENDING)
+  paidDate      DateTime?      @map("paid_date")
+  paidAmount    Decimal?       @map("paid_amount") @db.Decimal(15, 2)
+  currency      String         @default("NGN")
+  notes         String?
+  alertsSent    Json           @default("[]") @map("alerts_sent")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  alerts        Alert[]
+  followUps     FollowUp[]
+  client        Client         @relation(fields: [clientId], references: [id])
+  slaViolations SlaViolation[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([invoiceDate])
+  @@index([status, dueDate])
+  @@map("invoices")
+}
+
+model FollowUp {
+  id               String       @id @default(cuid())
+  invoiceId        String       @map("invoice_id")
+  userId           String       @map("user_id")
+  followUpDate     DateTime     @default(now()) @map("follow_up_date")
+  followUpType     FollowUpType @map("follow_up_type")
+  notes            String?
+  responseReceived Boolean      @default(false) @map("response_received")
+  nextFollowUpDate DateTime?    @map("next_follow_up_date")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  invoice          Invoice      @relation(fields: [invoiceId], references: [id])
+  user             User         @relation(fields: [userId], references: [id])
+
+  @@index([invoiceId])
+  @@index([userId])
+  @@index([followUpDate])
+  @@map("follow_ups")
+}
+
+model SlaViolation {
+  id            String    @id @default(cuid())
+  clientId      String    @map("client_id")
+  invoiceId     String    @map("invoice_id")
+  violationDate DateTime  @default(now()) @map("violation_date")
+  daysLate      Int       @map("days_late")
+  resolved      Boolean   @default(false)
+  resolvedAt    DateTime? @map("resolved_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  client        Client    @relation(fields: [clientId], references: [id])
+  invoice       Invoice   @relation(fields: [invoiceId], references: [id])
+
+  @@index([clientId])
+  @@index([invoiceId])
+  @@index([violationDate])
+  @@map("sla_violations")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id")
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  oldValues Json?    @map("old_values")
+  newValues Json?    @map("new_values")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Alert {
+  id        String    @id @default(cuid())
+  invoiceId String    @map("invoice_id")
+  alertType AlertType @map("alert_type")
+  channel   String    @default("dashboard")
+  message   String
+  isRead    Boolean   @default(false) @map("is_read")
+  sentAt    DateTime  @default(now()) @map("sent_at")
+  readAt    DateTime? @map("read_at")
+  invoice   Invoice   @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@index([isRead])
+  @@index([alertType])
+  @@map("alerts")
+}
+
+enum UserRole {
+  ADMIN
+  CFO
+  FINANCE
+  SALES
+}
+
+enum ClientRisk {
+  RELIABLE
+  MODERATE
+  HIGH_RISK
+  CHRONIC
+}
+
+enum InvoiceStatus {
+  PENDING
+  DUE_TODAY
+  OVERDUE
+  PAID
+  CANCELLED
+}
+
+enum FollowUpType {
+  EMAIL
+  PHONE
+  IN_PERSON
+  LETTER
+  WHATSAPP
+  ESCALATION
+}
+
+enum AlertType {
+  DUE_7_DAYS
+  DUE_3_DAYS
+  DUE_1_DAY
+  DUE_TODAY
+  OVERDUE
+  FOLLOW_UP_STALE
+  PDI_THRESHOLD
+  CREDIT_LIMIT_BREACH
+}

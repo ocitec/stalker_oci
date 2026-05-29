@@ -1,0 +1,29 @@
+{
+  "name": "stalker-v1",
+  "version": "1.0.0",
+  "description": "Stalker v1 — Cash Control Intelligence Platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev":         "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api":     "npm run dev       --workspace=apps/api",
+    "dev:web":     "npm run dev       --workspace=apps/web",
+    "build:api":   "npm run build     --workspace=apps/api",
+    "build:web":   "npm run build     --workspace=apps/web",
+    "test:api":    "npm run test      --workspace=apps/api",
+    "db:migrate":  "npm run prisma:migrate --workspace=apps/api",
+    "db:seed":     "npm run prisma:seed    --workspace=apps/api",
+    "docker:up":   "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm":  ">=10.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
