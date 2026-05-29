@@ -6,7 +6,7 @@
   "scripts": {
     "build": "prisma generate && nest build",
     "dev": "nest start --watch",
-    "start": "node dist/main",
+    "start": "node dist/src/main",
     "test": "jest",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "lint": "eslint \"src/**/*.{js,ts}\" --fix",
