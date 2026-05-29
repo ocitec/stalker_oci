@@ -1,0 +1,137 @@
+{
+  "framework": "nextjs",
+
+  "installCommand": "cd ../.. && npm install",
+  "buildCommand":   "cd ../.. && npm run build:web",
+  "devCommand":     "npm run dev",
+  "outputDirectory": ".next",
+
+  "trailingSlash": false,
+  "cleanUrls":     true,
+
+  "env": {
+    "NEXT_PUBLIC_API_URL": "@next_public_api_url"
+  },
+
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_API_URL": "@next_public_api_url"
+    }
+  },
+
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key":   "X-DNS-Prefetch-Control",
+          "value": "on"
+        },
+        {
+          "key":   "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key":   "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key":   "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key":   "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key":   "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key":   "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=()"
+        }
+      ]
+    },
+
+    {
+      "source": "/_next/static/(.*)",
+      "headers": [
+        {
+          "key":   "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/_next/image(.*)",
+      "headers": [
+        {
+          "key":   "Cache-Control",
+          "value": "public, max-age=86400, stale-while-revalidate=604800"
+        }
+      ]
+    },
+    {
+      "source": "/static/(.*)",
+      "headers": [
+        {
+          "key":   "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/favicon.ico",
+      "headers": [
+        {
+          "key":   "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    },
+    {
+      "source": "/dashboard(.*)",
+      "headers": [
+        {
+          "key":   "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/login",
+      "headers": [
+        {
+          "key":   "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate"
+        }
+      ]
+    }
+  ],
+
+  "rewrites": [
+    {
+      "source":      "/api/v1/:path*",
+      "destination": "https://api.stalker-cashcontrol.com/api/v1/:path*"
+    }
+  ],
+
+  "redirects": [
+    {
+      "source":      "/",
+      "destination": "/dashboard",
+      "permanent":   false
+    },
+    {
+      "source":      "/home",
+      "destination": "/dashboard",
+      "permanent":   true
+    },
+    {
+      "source":      "/signin",
+      "destination": "/login",
+      "permanent":   true
+    }
+  ]
+}
