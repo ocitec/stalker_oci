@@ -11,6 +11,7 @@ docker-compose.dev.yml
 .env.local
 .env.*.local
 .env.production.local
+.env.example
 
 # ── IDE / Editor ───────────────────────────────
 .vscode/
@@ -38,6 +39,7 @@ apps/web/.next/
 apps/web/out/
 apps/web/build/
 apps/web/.tsbuildinfo
+apps/web/.env.example
 
 # ── Prisma ────────────────────────────────────
 apps/api/prisma/dev.db

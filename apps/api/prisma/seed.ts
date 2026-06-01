@@ -40,7 +40,7 @@ async function main() {
       name: 'Amaka Obi',
       email: 'amaka.obi@soascorp.ng',
       passwordHash,
-      role: UserRole.CFO,
+      role: UserRole.ADMIN,
       organizationId: org.id,
     },
   });

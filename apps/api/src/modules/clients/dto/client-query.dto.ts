@@ -8,9 +8,9 @@ export class ClientQueryDto {
   @IsOptional() @IsInt() @Min(1) @Type(() => Number)
   page?: number = 1;
 
-  @ApiPropertyOptional({ default: 20 })
-  @IsOptional() @IsInt() @Min(1) @Max(100) @Type(() => Number)
-  limit?: number = 20;
+  @ApiPropertyOptional({ default: 200 })
+  @IsOptional() @IsInt() @Min(1) @Max(200) @Type(() => Number)
+  limit?: number = 200;
 
   @ApiPropertyOptional()
   @IsOptional() @IsString()

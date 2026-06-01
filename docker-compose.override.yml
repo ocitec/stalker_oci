@@ -1,0 +1,58 @@
+# Development Override Configuration
+# This file is automatically loaded by Docker Compose alongside docker-compose.yml
+# It overrides settings for a local development environment
+
+version: '3.8'
+
+services:
+  postgres:
+    environment:
+      POSTGRES_INITDB_ARGS: "-c log_statement=all"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+
+  redis:
+    command: redis-server --appendonly yes
+    ports:
+      - '6379:6379'
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    volumes:
+      # Hot-reload for development
+      - ./apps/api/src:/app/src
+      - ./apps/api/prisma:/app/prisma
+    command: npm run dev
+    ports:
+      - '3001:3001'
+      - '9229:9229'  # Node debugger port
+    profiles:
+      - dev
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+    volumes:
+      # Hot-reload for development
+      - ./apps/web/src:/app/src
+      - ./apps/web/public:/app/public
+    command: npm run dev
+    ports:
+      - '3000:3000'
+    profiles:
+      - dev
+
+  bull-board:
+    profiles:
+      - dev

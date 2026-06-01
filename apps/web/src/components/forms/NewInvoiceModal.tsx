@@ -17,7 +17,7 @@ function today() { return new Date().toISOString().split('T')[0]; }
 
 export function NewInvoiceModal({ open, onClose }: Props) {
   const createInvoice              = useCreateInvoice();
-  const { data: clientsData }      = useClients({ limit: 200, isBlocked: false });
+  const { data: clientsData }      = useClients({ page: 1, limit: 200, isBlocked: false }); // Only active clients for invoicing
   const clients                    = (clientsData as any)?.data ?? (Array.isArray(clientsData) ? clientsData : []);
 
   const [invoiceNumber, setInvoiceNumber] = useState(genInvoiceNo);
@@ -79,7 +79,7 @@ export function NewInvoiceModal({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  console.log(clients)
+  console.log(clients) 
 
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>

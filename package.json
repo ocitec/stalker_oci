@@ -17,7 +17,7 @@
     "db:migrate":  "npm run prisma:migrate --workspace=apps/api",
     "db:seed":     "npm run prisma:seed    --workspace=apps/api",
     "docker:up":   "docker-compose up -d",
-    "docker:down": "docker-compose down"
+    "docker:down": "docker-compose down" 
   },
   "engines": {
     "node": ">=20.0.0",

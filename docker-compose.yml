@@ -6,18 +6,25 @@ services:
     container_name: stalker_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: admin123
-      POSTGRES_DB: stalker_v1
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_DB: ${POSTGRES_DB:-stalker_v1}
     ports:
-      - '5432:5432'
+      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U stalker']
-      interval: 5s
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
+    networks:
+      - stalker_network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
 
   # ── Redis ──────────────────────────────────────
   redis:
@@ -25,77 +32,128 @@ services:
     container_name: stalker_redis
     restart: unless-stopped
     ports:
-      - '6379:6379'
+      - '${REDIS_PORT:-6379}:6379'
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 5
+    networks:
+      - stalker_network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
 
   # ── NestJS API ─────────────────────────────────
   api:
     build:
       context: ./apps/api
-      dockerfile: Dockerfile
+      dockerfile: ${API_DOCKERFILE:-Dockerfile}
     container_name: stalker_api
     restart: unless-stopped
     ports:
-      - '3001:3001'
+      - '${API_PORT:-3001}:3001'
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3001
-      DATABASE_URL: postgresql://postgres:admin123@localhost/stalker_v1
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:admin123@postgres:5432/stalker_v1}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       JWT_SECRET: ${JWT_SECRET:-stalker-change-in-production}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-stalker-refresh-change-in-production}
-      FRONTEND_URL: http://localhost:3000
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-3600}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3001/api/health']
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3001/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - stalker_network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '50m'
+        max-file: '5'
+    labels:
+      - "com.stalker.service=api"
+      - "com.stalker.version=${APP_VERSION:-1.0.0}"
 
   # ── Next.js Web ────────────────────────────────
   web:
     build:
       context: ./apps/web
-      dockerfile: Dockerfile
+      dockerfile: ${WEB_DOCKERFILE:-Dockerfile}
     container_name: stalker_web
     restart: unless-stopped
     ports:
-      - '3000:3000'
+      - '${WEB_PORT:-3000}:3000'
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+      NODE_ENV: ${NODE_ENV:-production}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api/v1}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://localhost:3000']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - stalker_network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '50m'
+        max-file: '5'
+    labels:
+      - "com.stalker.service=web"
+      - "com.stalker.version=${APP_VERSION:-1.0.0}"
 
   # ── BullMQ Dashboard (dev only) ────────────────
   bull-board:
     image: deadly0/bull-board
     container_name: stalker_bull_board
+    restart: unless-stopped
     ports:
-      - '3003:3000'
+      - '${BULL_PORT:-3003}:3000'
     environment:
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     depends_on:
       - redis
     profiles:
       - dev
+    networks:
+      - stalker_network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
 
 volumes:
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
 
 networks:
-  default:
+  stalker_network:
+    driver: bridge
     name: stalker_network
