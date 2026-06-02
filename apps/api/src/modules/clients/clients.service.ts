@@ -27,8 +27,9 @@ export class ClientsService {
     });
   }
 
-  async findAll(organizationId: string, query: ClientQueryDto) {
+  async findAll(organizationId: string, query: any) {
     const { page = 1, limit = 200, search, riskStatus, sector, isBlocked } = query;
+    console.log('Querying clients with', query);
     const skip = (page - 1) * limit;
 
     const where: Prisma.ClientWhereInput = {
