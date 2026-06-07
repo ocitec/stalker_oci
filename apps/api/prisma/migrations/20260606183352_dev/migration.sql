@@ -1,14 +1,11 @@
-/*
-  Warnings:
+-- CreateEnum
+CREATE TYPE "UserRole" AS ENUM ('ADMIN', 'CFO', 'FINANCE', 'SALES');
 
-  - The values [OPERATIONS,VIEWER] on the enum `UserRole` will be removed. If these variants are still used in the database, this will fail.
-
-*/
 -- CreateEnum
 CREATE TYPE "ClientRisk" AS ENUM ('RELIABLE', 'MODERATE', 'HIGH_RISK', 'CHRONIC');
 
 -- CreateEnum
-CREATE TYPE "InvoiceStatus" AS ENUM ('PENDING', 'DUE_TODAY', 'OVERDUE', 'PAID', 'CANCELLED');
+CREATE TYPE "InvoiceStatus" AS ENUM ('PENDING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_PAID', 'PAID', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "FollowUpType" AS ENUM ('EMAIL', 'PHONE', 'IN_PERSON', 'LETTER', 'WHATSAPP', 'ESCALATION');
@@ -16,22 +13,32 @@ CREATE TYPE "FollowUpType" AS ENUM ('EMAIL', 'PHONE', 'IN_PERSON', 'LETTER', 'WH
 -- CreateEnum
 CREATE TYPE "AlertType" AS ENUM ('DUE_7_DAYS', 'DUE_3_DAYS', 'DUE_1_DAY', 'DUE_TODAY', 'OVERDUE', 'FOLLOW_UP_STALE', 'PDI_THRESHOLD', 'CREDIT_LIMIT_BREACH');
 
--- AlterEnum
-BEGIN;
-CREATE TYPE "UserRole_new" AS ENUM ('ADMIN', 'CFO', 'FINANCE', 'SALES');
-ALTER TABLE "public"."users" ALTER COLUMN "role" DROP DEFAULT;
-ALTER TABLE "users" ALTER COLUMN "role" TYPE "UserRole_new" USING ("role"::text::"UserRole_new");
-ALTER TYPE "UserRole" RENAME TO "UserRole_old";
-ALTER TYPE "UserRole_new" RENAME TO "UserRole";
-DROP TYPE "public"."UserRole_old";
-ALTER TABLE "users" ALTER COLUMN "role" SET DEFAULT 'FINANCE';
-COMMIT;
+-- CreateTable
+CREATE TABLE "organizations" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "industry" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
 
--- DropIndex
-DROP INDEX "organizations_name_key";
+    CONSTRAINT "organizations_pkey" PRIMARY KEY ("id")
+);
 
--- DropEnum
-DROP TYPE "AlertStatus";
+-- CreateTable
+CREATE TABLE "users" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "password_hash" TEXT NOT NULL,
+    "role" "UserRole" NOT NULL DEFAULT 'FINANCE',
+    "organization_id" TEXT NOT NULL,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "last_login_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "users_pkey" PRIMARY KEY ("id")
+);
 
 -- CreateTable
 CREATE TABLE "refresh_tokens" (
@@ -77,6 +84,8 @@ CREATE TABLE "invoices" (
     "status" "InvoiceStatus" NOT NULL DEFAULT 'PENDING',
     "paid_date" TIMESTAMP(3),
     "paid_amount" DECIMAL(15,2),
+    "amount_paid" DECIMAL(15,2) NOT NULL DEFAULT 0,
+    "remaining_balance" DECIMAL(15,2),
     "currency" TEXT NOT NULL DEFAULT 'NGN',
     "notes" TEXT,
     "alerts_sent" JSONB NOT NULL DEFAULT '[]',
@@ -84,6 +93,23 @@ CREATE TABLE "invoices" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "invoices_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "payment_records" (
+    "id" TEXT NOT NULL,
+    "invoice_id" TEXT NOT NULL,
+    "paid_by" TEXT,
+    "amount" DECIMAL(15,2) NOT NULL,
+    "payment_date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "notes" TEXT,
+    "is_reverted" BOOLEAN NOT NULL DEFAULT false,
+    "reverted_at" TIMESTAMP(3),
+    "reverted_by" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "payment_records_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -146,6 +172,21 @@ CREATE TABLE "alerts" (
 );
 
 -- CreateIndex
+CREATE INDEX "organizations_name_idx" ON "organizations"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
+
+-- CreateIndex
+CREATE INDEX "users_email_idx" ON "users"("email");
+
+-- CreateIndex
+CREATE INDEX "users_organization_id_idx" ON "users"("organization_id");
+
+-- CreateIndex
+CREATE INDEX "users_role_idx" ON "users"("role");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "refresh_tokens_token_key" ON "refresh_tokens"("token");
 
 -- CreateIndex
@@ -188,6 +229,15 @@ CREATE INDEX "invoices_invoice_date_idx" ON "invoices"("invoice_date");
 CREATE INDEX "invoices_status_due_date_idx" ON "invoices"("status", "due_date");
 
 -- CreateIndex
+CREATE INDEX "payment_records_invoice_id_idx" ON "payment_records"("invoice_id");
+
+-- CreateIndex
+CREATE INDEX "payment_records_paid_by_idx" ON "payment_records"("paid_by");
+
+-- CreateIndex
+CREATE INDEX "payment_records_is_reverted_idx" ON "payment_records"("is_reverted");
+
+-- CreateIndex
 CREATE INDEX "follow_ups_invoice_id_idx" ON "follow_ups"("invoice_id");
 
 -- CreateIndex
@@ -224,6 +274,9 @@ CREATE INDEX "alerts_is_read_idx" ON "alerts"("is_read");
 CREATE INDEX "alerts_alert_type_idx" ON "alerts"("alert_type");
 
 -- AddForeignKey
+ALTER TABLE "users" ADD CONSTRAINT "users_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "refresh_tokens" ADD CONSTRAINT "refresh_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -231,6 +284,12 @@ ALTER TABLE "clients" ADD CONSTRAINT "clients_organization_id_fkey" FOREIGN KEY 
 
 -- AddForeignKey
 ALTER TABLE "invoices" ADD CONSTRAINT "invoices_client_id_fkey" FOREIGN KEY ("client_id") REFERENCES "clients"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "payment_records" ADD CONSTRAINT "payment_records_invoice_id_fkey" FOREIGN KEY ("invoice_id") REFERENCES "invoices"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "payment_records" ADD CONSTRAINT "payment_records_paid_by_fkey" FOREIGN KEY ("paid_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "follow_ups" ADD CONSTRAINT "follow_ups_invoice_id_fkey" FOREIGN KEY ("invoice_id") REFERENCES "invoices"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

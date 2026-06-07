@@ -26,6 +26,7 @@ model User {
   passwordHash   String         @map("password_hash")
   role           UserRole       @default(FINANCE)
   organizationId String         @map("organization_id")
+  paymentRecords  PaymentRecord[]
   isActive       Boolean        @default(true) @map("is_active")
   lastLoginAt    DateTime?      @map("last_login_at")
   createdAt      DateTime       @default(now()) @map("created_at")
@@ -92,6 +93,9 @@ model Invoice {
   status        InvoiceStatus  @default(PENDING)
   paidDate      DateTime?      @map("paid_date")
   paidAmount    Decimal?       @map("paid_amount") @db.Decimal(15, 2)
+  amountPaid    Decimal        @default(0)  @map("amount_paid")      @db.Decimal(15, 2)
+  remainingBalance Decimal?              @map("remaining_balance")  @db.Decimal(15, 2)
+  payments         PaymentRecord[]
   currency      String         @default("NGN")
   notes         String?
   alertsSent    Json           @default("[]") @map("alerts_sent")
@@ -108,6 +112,28 @@ model Invoice {
   @@index([invoiceDate])
   @@index([status, dueDate])
   @@map("invoices")
+}
+
+model PaymentRecord {
+  id          String    @id @default(cuid())
+  invoiceId   String    @map("invoice_id")
+  paidBy      String?   @map("paid_by")
+  amount      Decimal   @db.Decimal(15, 2)
+  paymentDate DateTime  @default(now()) @map("payment_date")
+  notes       String?
+  isReverted  Boolean   @default(false) @map("is_reverted")
+  revertedAt  DateTime? @map("reverted_at")
+  revertedBy  String?   @map("reverted_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt      @map("updated_at")
+
+  invoice  Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user     User?   @relation(fields: [paidBy],    references: [id])
+
+  @@index([invoiceId])
+  @@index([paidBy])
+  @@index([isReverted])
+  @@map("payment_records")
 }
 
 model FollowUp {
@@ -201,6 +227,7 @@ enum InvoiceStatus {
   PENDING
   DUE_TODAY
   OVERDUE
+  PARTIALLY_PAID
   PAID
   CANCELLED
 }

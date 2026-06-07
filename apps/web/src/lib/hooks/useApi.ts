@@ -5,7 +5,7 @@ import {
   followUpsApi, alertsApi, analyticsApi, slaApi,
 } from '@/lib/api/client';
 
-// ── Query Keys ─────────────────────────────────
+// ── Query keys ─────────────────────────────────────────────────────────────
 export const QK = {
   dashboard:       ['dashboard'],
   clients:         (p?: any) => ['clients', p],
@@ -29,7 +29,16 @@ export const QK = {
   cfoReport:       ['analytics', 'cfo-report'],
 };
 
-// ── Dashboard ──────────────────────────────────
+// Helper to invalidate everything payment-related at once
+function invalidatePaymentQueries(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['invoices'] });
+  qc.invalidateQueries({ queryKey: ['clients'] });
+  qc.invalidateQueries({ queryKey: QK.dashboard });
+  qc.invalidateQueries({ queryKey: QK.overdueInvoices });
+  qc.invalidateQueries({ queryKey: QK.aging });
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
 export function useDashboard() {
   return useQuery({
     queryKey: QK.dashboard,
@@ -38,7 +47,7 @@ export function useDashboard() {
   });
 }
 
-// ── Clients ────────────────────────────────────
+// ── Clients ────────────────────────────────────────────────────────────────
 export function useClients(params?: any) {
   return useQuery({
     queryKey: QK.clients(params),
@@ -79,7 +88,7 @@ export function useUpdateClient() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) =>
       clientsApi.update(id, data).then(r => r.data.data),
-    onSuccess: (_data, { id }) => {
+    onSuccess: (_d, { id }) => {
       qc.invalidateQueries({ queryKey: ['clients'] });
       qc.invalidateQueries({ queryKey: QK.client(id) });
       toast.success('Client updated');
@@ -95,7 +104,6 @@ export function useBlockClient() {
       clientsApi.block(id, reason).then(r => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clients'] });
-      qc.invalidateQueries({ queryKey: QK.dashboard });
       toast.success('Client blocked');
     },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to block client'),
@@ -109,14 +117,13 @@ export function useUnblockClient() {
       clientsApi.unblock(id).then(r => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clients'] });
-      qc.invalidateQueries({ queryKey: QK.dashboard });
-      toast.success('Client unblocked — credit access restored');
+      toast.success('Client unblocked');
     },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to unblock client'),
   });
 }
 
-// ── Invoices ───────────────────────────────────
+// ── Invoices ───────────────────────────────────────────────────────────────
 export function useInvoices(params?: any) {
   return useQuery({
     queryKey: QK.invoices(params),
@@ -160,22 +167,72 @@ export function useCreateInvoice() {
   });
 }
 
+// ── Mark paid — supports full and partial payments ─────────────────────────
 export function useMarkPaid() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data?: any }) =>
-      invoicesApi.markPaid(id, data).then(r => r.data.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['invoices'] });
-      qc.invalidateQueries({ queryKey: ['clients'] });
-      qc.invalidateQueries({ queryKey: QK.dashboard });
-      toast.success('Invoice marked as paid — PDI recalculated');
+    mutationFn: ({
+      id,
+      paymentAmount,
+      paymentDate,
+      notes,
+    }: {
+      id:             string;
+      paymentAmount?: number;    // omit for full payment
+      paymentDate?:   string;
+      notes?:         string;
+    }) =>
+      invoicesApi
+        .markPaid(id, { paymentAmount, paymentDate, notes })
+        .then(r => r.data.data),
+
+    onSuccess: (data: any) => {
+      invalidatePaymentQueries(qc);
+      // Re-fetch the specific invoice so the drawer updates immediately
+      if (data?.invoice?.id) {
+        qc.invalidateQueries({ queryKey: QK.invoice(data.invoice.id) });
+      }
+      if (data?.isFullyPaid) {
+        toast.success('Invoice paid in full — PDI updated');
+      } else {
+        toast.success('Partial payment recorded');
+      }
     },
-    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to mark invoice paid'),
+    onError: (e: any) =>
+      toast.error(e.response?.data?.message || 'Failed to record payment'),
   });
 }
 
-// ── Follow-ups ─────────────────────────────────
+// ── Revert payment ─────────────────────────────────────────────────────────
+export function useRevertPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      invoiceId,
+      paymentRecordId,
+      reason,
+    }: {
+      invoiceId:       string;
+      paymentRecordId: string;
+      reason?:         string;
+    }) =>
+      invoicesApi
+        .revertPayment(invoiceId, paymentRecordId, reason)
+        .then(r => r.data.data),
+
+    onSuccess: (data: any) => {
+      invalidatePaymentQueries(qc);
+      if (data?.invoice?.id) {
+        qc.invalidateQueries({ queryKey: QK.invoice(data.invoice.id) });
+      }
+      toast.success(`Payment of ${data?.revertedAmount?.toLocaleString('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 0 })} reverted`);
+    },
+    onError: (e: any) =>
+      toast.error(e.response?.data?.message || 'Failed to revert payment'),
+  });
+}
+
+// ── Follow-ups ─────────────────────────────────────────────────────────────
 export function useFollowUps(params?: any) {
   return useQuery({
     queryKey: QK.followUps(params),
@@ -198,13 +255,13 @@ export function useCreateFollowUp() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['followups'] });
       qc.invalidateQueries({ queryKey: ['invoices'] });
-      toast.success('Follow-up logged successfully');
+      toast.success('Follow-up logged');
     },
     onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to log follow-up'),
   });
 }
 
-// ── Alerts ─────────────────────────────────────
+// ── Alerts ─────────────────────────────────────────────────────────────────
 export function useAlerts(params?: any) {
   return useQuery({
     queryKey: QK.alerts(params),
@@ -225,10 +282,8 @@ export function useMarkRead() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => alertsApi.markRead(id).then(r => r.data.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['alerts'] });
-    },
-    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to mark alert read'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['alerts'] }),
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to mark read'),
   });
 }
 
@@ -243,7 +298,7 @@ export function useMarkAllRead() {
   });
 }
 
-// ── SLA ────────────────────────────────────────
+// ── SLA ────────────────────────────────────────────────────────────────────
 export function useSlaViolations(params?: any) {
   return useQuery({
     queryKey: QK.slaViolations(params),
@@ -265,7 +320,7 @@ export function useTopViolators() {
   });
 }
 
-// ── Analytics ──────────────────────────────────
+// ── Analytics ──────────────────────────────────────────────────────────────
 export function useAiInsights() {
   return useQuery({
     queryKey: QK.insights,

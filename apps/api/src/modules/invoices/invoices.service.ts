@@ -4,12 +4,15 @@ import {
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { InvoiceStatus, Prisma } from '@prisma/client';
-import { addDays, differenceInDays, isAfter, isToday, isBefore } from 'date-fns';
+import { addDays, differenceInDays, isToday, isBefore } from 'date-fns';
 import { PrismaService } from '../../config/prisma.service';
 import { ClientsService } from '../clients/clients.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { InvoiceQueryDto } from './dto/invoice-query.dto';
 import { MarkPaidDto } from './dto/mark-paid.dto';
+import { RevertPaymentDto } from './dto/revert-payment.dto';
+
+const BALANCE_EPSILON = 0.005;
 
 @Injectable()
 export class InvoicesService {
@@ -21,8 +24,8 @@ export class InvoicesService {
     @InjectQueue('alerts') private alertsQueue: Queue,
   ) {}
 
+  // ── CREATE ─────────────────────────────────────────────────────────────────
   async create(dto: CreateInvoiceDto, organizationId: string) {
-    // Validate client exists and not blocked
     const client = await this.prisma.client.findFirst({
       where: { id: dto.clientId, organizationId },
     });
@@ -33,7 +36,6 @@ export class InvoicesService {
       );
     }
 
-    // Auto-calculate due date from SLA
     const invoiceDate = dto.invoiceDate ? new Date(dto.invoiceDate) : new Date();
     const dueDate = dto.dueDate
       ? new Date(dto.dueDate)
@@ -41,37 +43,39 @@ export class InvoicesService {
 
     const invoice = await this.prisma.invoice.create({
       data: {
-        clientId: dto.clientId,
-        invoiceNumber: dto.invoiceNumber,
-        invoiceAmount: dto.invoiceAmount,
+        clientId:         dto.clientId,
+        invoiceNumber:    dto.invoiceNumber,
+        invoiceAmount:    dto.invoiceAmount,
+        remainingBalance: dto.invoiceAmount,
+        amountPaid:       0,
         invoiceDate,
         dueDate,
         currency: dto.currency || 'NGN',
-        notes: dto.notes,
-        status: 'PENDING',
+        notes:    dto.notes,
+        status:   'PENDING',
       },
       include: { client: true },
     });
 
-    // Queue pre-due alert scheduling
     await this.alertsQueue.add('schedule-alerts', {
       invoiceId: invoice.id,
-      dueDate: dueDate.toISOString(),
-      clientId: dto.clientId,
-      amount: dto.invoiceAmount,
+      dueDate:   dueDate.toISOString(),
+      clientId:  dto.clientId,
+      amount:    dto.invoiceAmount,
     });
 
     this.logger.log(`Invoice created: ${invoice.invoiceNumber} for ${client.name}`);
     return invoice;
   }
 
+  // ── LIST ───────────────────────────────────────────────────────────────────
   async findAll(organizationId: string, query: InvoiceQueryDto) {
     const { page = 1, limit = 20, status, clientId, search, dateFrom, dateTo } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.InvoiceWhereInput = {
       client: { organizationId },
-      ...(status && { status }),
+      ...(status   && { status }),
       ...(clientId && { clientId }),
       ...(search && {
         OR: [
@@ -80,7 +84,7 @@ export class InvoicesService {
         ],
       }),
       ...(dateFrom && { invoiceDate: { gte: new Date(dateFrom) } }),
-      ...(dateTo && { invoiceDate: { lte: new Date(dateTo) } }),
+      ...(dateTo   && { invoiceDate: { lte: new Date(dateTo) } }),
     };
 
     const [invoices, total] = await Promise.all([
@@ -88,8 +92,15 @@ export class InvoicesService {
         where, skip, take: limit,
         orderBy: [{ status: 'asc' }, { dueDate: 'asc' }],
         include: {
-          client: { select: { id: true, name: true, paymentDisciplineIndex: true, riskStatus: true } },
+          client: {
+            select: { id: true, name: true, paymentDisciplineIndex: true, riskStatus: true },
+          },
           followUps: { orderBy: { followUpDate: 'desc' }, take: 1 },
+          payments: {
+            where:   { isReverted: false },
+            orderBy: { paymentDate: 'desc' },
+            take:    1,
+          },
         },
       }),
       this.prisma.invoice.count({ where }),
@@ -101,22 +112,26 @@ export class InvoicesService {
     };
   }
 
+  // ── OVERDUE LIST ───────────────────────────────────────────────────────────
   async findOverdue(organizationId: string) {
     const invoices = await this.prisma.invoice.findMany({
       where: {
-        status: 'OVERDUE',
+        status: { in: ['OVERDUE', 'PARTIALLY_PAID'] },
         client: { organizationId },
       },
       orderBy: { dueDate: 'asc' },
       include: {
-        client: { select: { id: true, name: true, paymentDisciplineIndex: true, riskStatus: true } },
-        followUps: { orderBy: { followUpDate: 'desc' }, take: 1 },
+        client: {
+          select: { id: true, name: true, paymentDisciplineIndex: true, riskStatus: true },
+        },
+        followUps:     { orderBy: { followUpDate: 'desc' }, take: 1 },
         slaViolations: { orderBy: { violationDate: 'desc' }, take: 1 },
       },
     });
     return invoices.map(inv => this.enrichInvoice(inv));
   }
 
+  // ── SINGLE ─────────────────────────────────────────────────────────────────
   async findOne(id: string, organizationId: string) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, client: { organizationId } },
@@ -126,6 +141,10 @@ export class InvoicesService {
           orderBy: { followUpDate: 'desc' },
           include: { user: { select: { id: true, name: true, role: true } } },
         },
+        payments: {
+          orderBy: { createdAt: 'desc' },
+          include: { user: { select: { id: true, name: true } } },
+        },
         slaViolations: true,
       },
     });
@@ -133,161 +152,321 @@ export class InvoicesService {
     return this.enrichInvoice(invoice);
   }
 
-  async markAsPaid(id: string, dto: MarkPaidDto, organizationId: string) {
-    const invoice = await this.findOne(id, organizationId);
+  // ── MARK AS PAID (full or partial) ─────────────────────────────────────────
+  async markAsPaid(
+    id:             string,
+    dto:            MarkPaidDto,
+    organizationId: string,
+    userId:         string,
+  ) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id, client: { organizationId } },
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
     if (invoice.status === 'PAID') {
-      throw new BadRequestException('Invoice is already marked as paid');
+      throw new BadRequestException('Invoice is already fully paid');
+    }
+    if (invoice.status === 'CANCELLED') {
+      throw new BadRequestException('Cannot record a payment on a cancelled invoice');
     }
 
-    const paidDate = dto.paidDate ? new Date(dto.paidDate) : new Date();
+    const totalAmount      = Number(invoice.invoiceAmount);
+    const currentPaid      = Number(invoice.amountPaid ?? 0);
+    const currentRemaining = Number(
+      invoice.remainingBalance ?? (totalAmount - currentPaid),
+    );
 
-    await this.prisma.invoice.update({
-      where: { id },
-      data: {
-        status: 'PAID',
-        paidDate,
-        paidAmount: dto.paidAmount || invoice.invoiceAmount,
-      },
-    });
+    // Omitting paymentAmount pays the full remaining balance
+    const paymentAmount = dto.paymentAmount != null
+      ? Number(dto.paymentAmount)
+      : currentRemaining;
 
-    // Trigger PDI recalculation
-    await this.clientsService.recalculatePDI(invoice.clientId);
+    if (paymentAmount <= 0) {
+      throw new BadRequestException('Payment amount must be greater than zero');
+    }
+    if (paymentAmount > currentRemaining + BALANCE_EPSILON) {
+      throw new BadRequestException(
+        `Payment amount (${paymentAmount.toFixed(2)}) exceeds the remaining balance (${currentRemaining.toFixed(2)})`,
+      );
+    }
 
-    // Resolve SLA violation if exists
-    await this.prisma.slaViolation.updateMany({
-      where: { invoiceId: id, resolved: false },
-      data: { resolved: true, resolvedAt: new Date() },
-    });
+    const newAmountPaid       = +(currentPaid + paymentAmount).toFixed(2);
+    const newRemainingBalance  = +Math.max(0, totalAmount - newAmountPaid).toFixed(2);
+    const isFullyPaid          = newRemainingBalance <= BALANCE_EPSILON;
+    const newStatus: InvoiceStatus = isFullyPaid ? 'PAID' : 'PARTIALLY_PAID';
+    const paymentDate = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
 
-    return { message: 'Invoice marked as paid', paidDate };
+    const [updatedInvoice, paymentRecord] = await this.prisma.$transaction([
+      this.prisma.invoice.update({
+        where: { id },
+        data: {
+          amountPaid:       newAmountPaid,
+          remainingBalance: newRemainingBalance,
+          paidAmount:       newAmountPaid,
+          status:           newStatus,
+          paidDate:         isFullyPaid ? paymentDate : (invoice.paidDate ?? null),
+        },
+        include: {
+          client: true,
+          payments: {
+            orderBy: { createdAt: 'desc' },
+            include: { user: { select: { id: true, name: true } } },
+          },
+        },
+      }),
+      this.prisma.paymentRecord.create({
+        data: {
+          invoiceId:   id,
+          paidBy:      userId,
+          amount:      paymentAmount,
+          paymentDate,
+          notes:       dto.notes ?? null,
+          isReverted:  false,
+        },
+      }),
+    ]);
+
+    if (isFullyPaid) {
+      await this.clientsService.recalculatePDI(invoice.clientId);
+      await this.prisma.slaViolation.updateMany({
+        where: { invoiceId: id, resolved: false },
+        data:  { resolved: true, resolvedAt: new Date() },
+      });
+    }
+
+    this.logger.log(
+      `Payment of ${paymentAmount} on ${invoice.invoiceNumber} — ` +
+      `status: ${newStatus}, remaining: ${newRemainingBalance}`,
+    );
+
+    return {
+      invoice:          this.enrichInvoice(updatedInvoice),
+      payment:          paymentRecord,
+      isFullyPaid,
+      amountPaid:       newAmountPaid,
+      remainingBalance: newRemainingBalance,
+    };
   }
 
-  // ── STATUS SYNC ENGINE (called by cron) ──────────────────
+  // ── REVERT PAYMENT ─────────────────────────────────────────────────────────
+  async revertPayment(
+    id:             string,
+    dto:            RevertPaymentDto,
+    organizationId: string,
+    userId:         string,
+  ) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id, client: { organizationId } },
+      include: {
+        payments: {
+          where:   { isReverted: false },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    if (invoice.status === 'CANCELLED') {
+      throw new BadRequestException('Cannot revert a payment on a cancelled invoice');
+    }
+
+    const activePayments = invoice.payments;
+    if (!activePayments.length) {
+      throw new BadRequestException('No active payments found to revert');
+    }
+
+    const mostRecent = activePayments[0];
+    if (mostRecent.id !== dto.paymentRecordId) {
+      throw new BadRequestException(
+        'Only the most recent payment can be reverted. ' +
+        'Revert in reverse chronological order if multiple payments need to be undone.',
+      );
+    }
+
+    const totalAmount        = Number(invoice.invoiceAmount);
+    const revertedAmount     = Number(mostRecent.amount);
+    const newAmountPaid      = +Math.max(0, Number(invoice.amountPaid) - revertedAmount).toFixed(2);
+    const newRemainingBalance = +(totalAmount - newAmountPaid).toFixed(2);
+    const remainingActive    = activePayments.length - 1;
+
+    let restoredStatus: InvoiceStatus;
+    if (newAmountPaid > BALANCE_EPSILON && remainingActive > 0) {
+      restoredStatus = 'PARTIALLY_PAID';
+    } else {
+      const dueDate = new Date(invoice.dueDate);
+      if (isToday(dueDate))            restoredStatus = 'DUE_TODAY';
+      else if (isBefore(dueDate, new Date())) restoredStatus = 'OVERDUE';
+      else                             restoredStatus = 'PENDING';
+    }
+
+    const [updatedInvoice] = await this.prisma.$transaction([
+      this.prisma.invoice.update({
+        where: { id },
+        data: {
+          amountPaid:       newAmountPaid,
+          remainingBalance: newRemainingBalance,
+          paidAmount:       newAmountPaid,
+          status:           restoredStatus,
+          paidDate:         newAmountPaid <= BALANCE_EPSILON ? null : (invoice.paidDate ?? null),
+        },
+        include: {
+          client: true,
+          payments: {
+            orderBy: { createdAt: 'desc' },
+            include: { user: { select: { id: true, name: true } } },
+          },
+        },
+      }),
+      this.prisma.paymentRecord.update({
+        where: { id: dto.paymentRecordId },
+        data: {
+          isReverted: true,
+          revertedAt: new Date(),
+          revertedBy: userId,
+        },
+      }),
+    ]);
+
+    if (invoice.status === 'PAID') {
+      await this.clientsService.recalculatePDI(invoice.clientId);
+      if (restoredStatus === 'OVERDUE') {
+        await this.prisma.slaViolation.updateMany({
+          where: { invoiceId: id, resolved: true },
+          data:  { resolved: false, resolvedAt: null },
+        });
+      }
+    }
+
+    this.logger.log(
+      `Payment of ${revertedAmount} reverted on ${invoice.invoiceNumber} ` +
+      `— restored: ${restoredStatus}`,
+    );
+
+    return {
+      invoice:             this.enrichInvoice(updatedInvoice),
+      revertedAmount,
+      restoredStatus,
+      newAmountPaid,
+      newRemainingBalance,
+    };
+  }
+
+  // ── STATUS SYNC (cron) ─────────────────────────────────────────────────────
   async syncInvoiceStatuses(): Promise<{ updated: number }> {
-    const today = new Date();
+    const today    = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = addDays(today, 1);
 
-    // Mark DUE_TODAY
     const dueTodayResult = await this.prisma.invoice.updateMany({
-      where: {
-        status: 'PENDING',
-        dueDate: { gte: today, lt: tomorrow },
-      },
-      data: { status: 'DUE_TODAY' },
+      where: { status: 'PENDING', dueDate: { gte: today, lt: tomorrow } },
+      data:  { status: 'DUE_TODAY' },
     });
 
-    // Mark OVERDUE
     const overdueResult = await this.prisma.invoice.updateMany({
-      where: {
-        status: { in: ['PENDING', 'DUE_TODAY'] },
-        dueDate: { lt: today },
-      },
-      data: { status: 'OVERDUE' },
+      where: { status: { in: ['PENDING', 'DUE_TODAY'] }, dueDate: { lt: today } },
+      data:  { status: 'OVERDUE' },
     });
 
-    // Create SLA violations for newly overdue
     const newlyOverdue = await this.prisma.invoice.findMany({
-      where: {
-        status: 'OVERDUE',
-        slaViolations: { none: {} },
-      },
+      where:  { status: 'OVERDUE', slaViolations: { none: {} } },
       select: { id: true, clientId: true, dueDate: true },
     });
-
     for (const inv of newlyOverdue) {
-      const daysLate = differenceInDays(today, inv.dueDate);
       await this.prisma.slaViolation.create({
         data: {
-          clientId: inv.clientId,
+          clientId:  inv.clientId,
           invoiceId: inv.id,
-          daysLate,
+          daysLate:  differenceInDays(today, inv.dueDate),
         },
       });
     }
 
     const total = dueTodayResult.count + overdueResult.count;
-    if (total > 0) this.logger.log(`Status sync: ${overdueResult.count} overdue, ${dueTodayResult.count} due today`);
+    if (total > 0) {
+      this.logger.log(`Status sync: ${overdueResult.count} overdue, ${dueTodayResult.count} due today`);
+    }
     return { updated: total };
   }
 
-  // ── AGING REPORT ──────────────────────────────
+  // ── AGING REPORT ───────────────────────────────────────────────────────────
   async getAgingReport(organizationId: string) {
-    const today = new Date();
+    const today    = new Date();
     const invoices = await this.prisma.invoice.findMany({
       where: {
         client: { organizationId },
-        status: { in: ['PENDING', 'DUE_TODAY', 'OVERDUE'] },
+        status: { in: ['PENDING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_PAID'] },
       },
-      select: { invoiceAmount: true, dueDate: true, status: true, clientId: true },
+      select: { invoiceAmount: true, remainingBalance: true, dueDate: true, status: true },
     });
 
     const buckets = {
       current: { value: 0, count: 0 },
-      '1_30': { value: 0, count: 0 },
+      '1_30':  { value: 0, count: 0 },
       '31_60': { value: 0, count: 0 },
       '61_90': { value: 0, count: 0 },
       over_90: { value: 0, count: 0 },
     };
 
     for (const inv of invoices) {
+      const amount      = Number(inv.remainingBalance ?? inv.invoiceAmount);
       const daysOverdue = differenceInDays(today, inv.dueDate);
-      const amount = Number(inv.invoiceAmount);
-      if (daysOverdue <= 0) { buckets.current.value += amount; buckets.current.count++; }
-      else if (daysOverdue <= 30) { buckets['1_30'].value += amount; buckets['1_30'].count++; }
+      if (daysOverdue <= 0)       { buckets.current.value += amount; buckets.current.count++; }
+      else if (daysOverdue <= 30) { buckets['1_30'].value  += amount; buckets['1_30'].count++;  }
       else if (daysOverdue <= 60) { buckets['31_60'].value += amount; buckets['31_60'].count++; }
       else if (daysOverdue <= 90) { buckets['61_90'].value += amount; buckets['61_90'].count++; }
-      else { buckets.over_90.value += amount; buckets.over_90.count++; }
+      else                        { buckets.over_90.value  += amount; buckets.over_90.count++;  }
     }
-
     return buckets;
   }
 
-  // ── DSO CALCULATION ───────────────────────────
+  // ── DSO ────────────────────────────────────────────────────────────────────
   async calculateDSO(organizationId: string, days = 90): Promise<number> {
     const fromDate = addDays(new Date(), -days);
-    const result = await this.prisma.invoice.aggregate({
-      where: {
-        client: { organizationId },
-        status: 'PAID',
-        paidDate: { gte: fromDate },
-      },
-      _sum: { invoiceAmount: true },
+    const result   = await this.prisma.invoice.aggregate({
+      where: { client: { organizationId }, status: 'PAID', paidDate: { gte: fromDate } },
+      _sum:  { invoiceAmount: true },
     });
-
     const totalRevenue = Number(result._sum.invoiceAmount || 0);
     if (totalRevenue === 0) return 0;
 
     const outstandingResult = await this.prisma.invoice.aggregate({
       where: {
         client: { organizationId },
-        status: { in: ['PENDING', 'DUE_TODAY', 'OVERDUE'] },
+        status: { in: ['PENDING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_PAID'] },
       },
-      _sum: { invoiceAmount: true },
+      _sum: { remainingBalance: true },
     });
-
-    const outstanding = Number(outstandingResult._sum.invoiceAmount || 0);
+    const outstanding  = Number(outstandingResult._sum.remainingBalance || 0);
     const dailyRevenue = totalRevenue / days;
     return dailyRevenue > 0 ? Math.round(outstanding / dailyRevenue) : 0;
   }
 
+  // ── PRIVATE HELPERS ────────────────────────────────────────────────────────
   private enrichInvoice(invoice: any) {
-    const today = new Date();
-    const daysOverdue = invoice.status === 'OVERDUE'
-      ? differenceInDays(today, new Date(invoice.dueDate))
+    const today             = new Date();
+    const daysOverdue       = ['OVERDUE', 'PARTIALLY_PAID'].includes(invoice.status)
+      ? Math.max(0, differenceInDays(today, new Date(invoice.dueDate)))
       : 0;
-    const daysToDue = invoice.status === 'PENDING'
+    const daysToDue         = invoice.status === 'PENDING'
       ? differenceInDays(new Date(invoice.dueDate), today)
       : null;
-    const lastFollowUp = invoice.followUps?.[0];
+    const lastFollowUp      = invoice.followUps?.[0];
     const daysSinceFollowUp = lastFollowUp
       ? differenceInDays(today, new Date(lastFollowUp.followUpDate))
       : null;
 
-    // Color coding engine
+    const totalAmount        = Number(invoice.invoiceAmount);
+    const amountPaid         = Number(invoice.amountPaid ?? 0);
+    const remainingBalance   = Number(invoice.remainingBalance ?? (totalAmount - amountPaid));
+    const paymentProgressPct = totalAmount > 0
+      ? Math.min(100, Math.round((amountPaid / totalAmount) * 100))
+      : 0;
+
     let colorCode: 'green' | 'blue' | 'amber' | 'red' = 'green';
-    if (invoice.status === 'OVERDUE') colorCode = 'red';
-    else if (invoice.status === 'DUE_TODAY') colorCode = 'amber';
+    if (invoice.status === 'OVERDUE')             colorCode = 'red';
+    else if (invoice.status === 'DUE_TODAY')      colorCode = 'amber';
+    else if (invoice.status === 'PARTIALLY_PAID') colorCode = 'blue';
     else if (daysToDue !== null && daysToDue <= 7) colorCode = 'blue';
 
     return {
@@ -296,7 +475,10 @@ export class InvoicesService {
       daysToDue,
       daysSinceFollowUp,
       colorCode,
-      followUpAlert: daysSinceFollowUp !== null && daysSinceFollowUp > 5,
+      followUpAlert:     daysSinceFollowUp !== null && daysSinceFollowUp > 5,
+      amountPaid,
+      remainingBalance,
+      paymentProgressPct,
     };
   }
 }
