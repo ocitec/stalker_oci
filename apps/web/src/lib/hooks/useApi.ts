@@ -167,6 +167,23 @@ export function useCreateInvoice() {
   });
 }
 
+export function useUpdateInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) =>
+      invoicesApi.update(id, data).then(r => r.data.data),
+    onSuccess: (updated: any) => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      qc.invalidateQueries({ queryKey: QK.dashboard });
+      if (updated?.id) {
+        qc.invalidateQueries({ queryKey: QK.invoice(updated.id) });
+      }
+      toast.success('Invoice updated');
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to update invoice'),
+  });
+}
+
 // ── Mark paid — supports full and partial payments ─────────────────────────
 export function useMarkPaid() {
   const qc = useQueryClient();

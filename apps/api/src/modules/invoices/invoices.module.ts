@@ -8,6 +8,7 @@ import { ClientsModule } from '../clients/clients.module';
   imports: [
     ClientsModule,
     BullModule.registerQueue({ name: 'alerts' }),
+    BullModule.registerQueue({ name: 'emails' }),
   ],
   controllers: [InvoicesController],
   providers: [InvoicesService],

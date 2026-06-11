@@ -6,6 +6,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { InvoicesService }   from './invoices.service';
 import { CreateInvoiceDto }  from './dto/create-invoice.dto';
+import { UpdateInvoiceDto }  from './dto/update-invoice.dto';
 import { InvoiceQueryDto }   from './dto/invoice-query.dto';
 import { MarkPaidDto }       from './dto/mark-paid.dto';
 import { RevertPaymentDto }  from './dto/revert-payment.dto';
@@ -65,6 +66,23 @@ export class InvoicesController {
     @CurrentUser('organizationId') orgId: string,
   ) {
     return this.invoicesService.findOne(id, orgId);
+  }
+
+  // ── Update invoice ─────────────────────────────────────────────────────────
+  @Patch(':id')
+  @Roles(UserRole.ADMIN, UserRole.CFO, UserRole.FINANCE)
+  @ApiOperation({
+    summary: 'Edit an invoice',
+    description:
+      'Cannot edit PAID or CANCELLED invoices. ' +
+      'invoiceAmount and invoiceDate can only be changed while the invoice is PENDING.',
+  })
+  update(
+    @Param('id')                        id:    string,
+    @Body()                             dto:   UpdateInvoiceDto,
+    @CurrentUser('organizationId')      orgId: string,
+  ) {
+    return this.invoicesService.update(id, dto, orgId);
   }
 
   // ── Mark paid: full or partial payment ────────────────────────────────────

@@ -105,6 +105,7 @@ export const invoicesApi = {
   aging:   ()             => api.get('/invoices/aging'),
   dso:     ()             => api.get('/invoices/dso'),
   create:  (data: any)    => api.post('/invoices', data),
+  update:  (id: string, data: any) => api.patch(`/invoices/${id}`, data),
 
   // ── Mark paid: supports full or partial payment ──────────────────────────
   markPaid: (

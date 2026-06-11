@@ -46,6 +46,15 @@ export const mailConfig = () => ({
   },
 });
 
+export const emailConfig = () => ({
+  email: {
+    postmarkApiKey: process.env.POSTMARK_API_KEY,
+    resendApiKey:   process.env.RESEND_API_KEY,
+    from: process.env.EMAIL_FROM || process.env.MAIL_FROM || 'STALKER Cash Control <noreply@stalker-cashcontrol.com>',
+    financeEmail:   process.env.FINANCE_EMAIL,
+  },
+});
+
 // ── Joi validation schema ────────────────────────────────────────────────────
 // Wire into AppModule:
 //   ConfigModule.forRoot({ validationSchema: configValidationSchema, ... })
@@ -84,10 +93,16 @@ export const configValidationSchema = Joi.object({
   // Frontend
   FRONTEND_URL: Joi.string().uri().default('http://localhost:3000'),
 
-  // Mail — fully optional; app boots without it, emails will fail silently
+  // Mail — legacy SMTP (optional)
   MAIL_HOST: Joi.string().default('smtp.mailtrap.io'),
   MAIL_PORT: Joi.number().default(587),
   MAIL_USER: Joi.string().optional().allow(''),
   MAIL_PASS: Joi.string().optional().allow(''),
   MAIL_FROM: Joi.string().optional().allow(''),
+
+  // Email providers (at least one required for email delivery)
+  POSTMARK_API_KEY: Joi.string().optional().allow(''),
+  RESEND_API_KEY:   Joi.string().optional().allow(''),
+  EMAIL_FROM:       Joi.string().optional().allow(''),
+  FINANCE_EMAIL:    Joi.string().optional().allow(''),
 });

@@ -8,9 +8,11 @@ import { addDays, differenceInDays, isToday, isBefore } from 'date-fns';
 import { PrismaService } from '../../config/prisma.service';
 import { ClientsService } from '../clients/clients.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { InvoiceQueryDto } from './dto/invoice-query.dto';
 import { MarkPaidDto } from './dto/mark-paid.dto';
 import { RevertPaymentDto } from './dto/revert-payment.dto';
+import { EmailJobName } from '../email/email.types';
 
 const BALANCE_EPSILON = 0.005;
 
@@ -22,6 +24,7 @@ export class InvoicesService {
     private readonly prisma: PrismaService,
     private readonly clientsService: ClientsService,
     @InjectQueue('alerts') private alertsQueue: Queue,
+    @InjectQueue('emails') private emailsQueue: Queue,
   ) {}
 
   // ── CREATE ─────────────────────────────────────────────────────────────────
@@ -41,6 +44,8 @@ export class InvoicesService {
       ? new Date(dto.dueDate)
       : addDays(invoiceDate, client.slaDays);
 
+    const initialStatus = this.resolveStatus(dueDate);
+
     const invoice = await this.prisma.invoice.create({
       data: {
         clientId:         dto.clientId,
@@ -52,10 +57,23 @@ export class InvoicesService {
         dueDate,
         currency: dto.currency || 'NGN',
         notes:    dto.notes,
-        status:   'PENDING',
+        status:   initialStatus,
       },
       include: { client: true },
     });
+
+    // Create SLA violation immediately when invoice is already past due
+    if (initialStatus === 'OVERDUE') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      await this.prisma.slaViolation.create({
+        data: {
+          clientId:  dto.clientId,
+          invoiceId: invoice.id,
+          daysLate:  differenceInDays(today, dueDate),
+        },
+      });
+    }
 
     await this.alertsQueue.add('schedule-alerts', {
       invoiceId: invoice.id,
@@ -64,8 +82,134 @@ export class InvoicesService {
       amount:    dto.invoiceAmount,
     });
 
+    // Notify client of new invoice
+    if (client.email) {
+      await this.emailsQueue.add(
+        EmailJobName.INVOICE_CREATED,
+        {
+          invoiceId:     invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          clientName:    client.name,
+          clientEmail:   client.email,
+          amount:        dto.invoiceAmount,
+          invoiceDate:   invoiceDate.toISOString(),
+          dueDate:       dueDate.toISOString(),
+          currency:      dto.currency || 'NGN',
+          notes:         dto.notes,
+        },
+        { jobId: `${EmailJobName.INVOICE_CREATED}:${invoice.id}` },
+      );
+    }
+
+    // Credit limit breach alert when the client's outstanding balance exceeds their limit
+    const creditLimit = Number(client.creditLimit);
+    if (creditLimit > 0) {
+      const outstandingResult = await this.prisma.invoice.aggregate({
+        where: { clientId: client.id, status: { in: ['PENDING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_PAID'] } },
+        _sum:  { remainingBalance: true },
+      });
+      const outstanding     = Number(outstandingResult._sum.remainingBalance ?? 0);
+      const utilizationPct  = Math.round((outstanding / creditLimit) * 100);
+
+      if (utilizationPct >= 90) {
+        await this.emailsQueue.add(
+          EmailJobName.CREDIT_LIMIT_BREACHED,
+          {
+            invoiceId:          invoice.id,
+            invoiceNumber:      invoice.invoiceNumber,
+            clientId:           client.id,
+            clientName:         client.name,
+            creditLimit,
+            currentOutstanding: outstanding,
+            utilizationPercent: utilizationPct,
+            organizationId:     client.organizationId,
+          },
+          { jobId: `${EmailJobName.CREDIT_LIMIT_BREACHED}:${invoice.id}` },
+        );
+      }
+    }
+
+    // Recalculate PDI immediately so new invoice is reflected in risk scores
+    await this.clientsService.recalculatePDI(dto.clientId);
+
     this.logger.log(`Invoice created: ${invoice.invoiceNumber} for ${client.name}`);
     return invoice;
+  }
+
+  // ── UPDATE ─────────────────────────────────────────────────────────────────
+  async update(id: string, dto: UpdateInvoiceDto, organizationId: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id, client: { organizationId } },
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    if (invoice.status === 'PAID' || invoice.status === 'CANCELLED') {
+      throw new BadRequestException(
+        `Cannot edit a ${invoice.status.toLowerCase()} invoice`,
+      );
+    }
+
+    // Amount and invoice date edits only allowed when no payments have been made
+    if (dto.invoiceAmount !== undefined || dto.invoiceDate !== undefined) {
+      if (invoice.status !== 'PENDING') {
+        throw new BadRequestException(
+          'Invoice amount and date can only be changed on a PENDING invoice with no payments recorded',
+        );
+      }
+    }
+
+    const updateData: Record<string, any> = {};
+    if (dto.invoiceNumber !== undefined) updateData.invoiceNumber = dto.invoiceNumber;
+    if (dto.currency     !== undefined) updateData.currency      = dto.currency;
+    if (dto.notes        !== undefined) updateData.notes         = dto.notes;
+    if (dto.invoiceDate  !== undefined) updateData.invoiceDate   = new Date(dto.invoiceDate);
+    if (dto.invoiceAmount !== undefined) {
+      updateData.invoiceAmount    = dto.invoiceAmount;
+      updateData.remainingBalance = dto.invoiceAmount; // PENDING = no payments yet
+    }
+
+    // Recalculate status when due date changes (skip PARTIALLY_PAID — payment state takes precedence)
+    if (dto.dueDate !== undefined) {
+      const newDueDate = new Date(dto.dueDate);
+      updateData.dueDate = newDueDate;
+      if (invoice.status !== 'PARTIALLY_PAID') {
+        updateData.status = this.resolveStatus(newDueDate);
+      }
+    }
+
+    const updated = await this.prisma.invoice.update({
+      where: { id },
+      data:  updateData,
+      include: {
+        client:    true,
+        followUps: { orderBy: { followUpDate: 'desc' } },
+        payments:  { orderBy: { createdAt: 'desc' }, include: { user: { select: { id: true, name: true } } } },
+      },
+    });
+
+    // Ensure an SLA violation exists if the invoice is now overdue
+    if (updated.status === 'OVERDUE') {
+      const existingViolation = await this.prisma.slaViolation.findFirst({
+        where: { invoiceId: id },
+      });
+      if (!existingViolation) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        await this.prisma.slaViolation.create({
+          data: {
+            clientId:  invoice.clientId,
+            invoiceId: id,
+            daysLate:  differenceInDays(today, updated.dueDate),
+          },
+        });
+      }
+    }
+
+    // Keep PDI in sync after any invoice edit
+    await this.clientsService.recalculatePDI(invoice.clientId);
+
+    this.logger.log(`Invoice ${invoice.invoiceNumber} updated`);
+    return this.enrichInvoice(updated);
   }
 
   // ── LIST ───────────────────────────────────────────────────────────────────
@@ -235,6 +379,51 @@ export class InvoicesService {
       });
     }
 
+    // Email notifications: client receipt + finance confirmation
+    const clientEmail = (updatedInvoice as any).client?.email;
+    const clientName  = (updatedInvoice as any).client?.name;
+    const orgId       = (updatedInvoice as any).client?.organizationId;
+    const recordedBy  = (updatedInvoice as any).payments?.[0]?.user?.name;
+
+    if (clientEmail) {
+      const clientJobName = isFullyPaid ? EmailJobName.PAYMENT_RECEIPT : EmailJobName.PARTIAL_PAYMENT_RECEIPT;
+      await this.emailsQueue.add(
+        clientJobName,
+        {
+          invoiceId:        id,
+          invoiceNumber:    invoice.invoiceNumber,
+          clientName,
+          clientEmail,
+          totalAmount:      updatedInvoice.invoiceAmount,
+          amountPaid:       newAmountPaid,
+          remainingBalance: newRemainingBalance,
+          paymentDate:      paymentDate.toISOString(),
+          paymentRecordId:  paymentRecord.id,
+          ...(isFullyPaid ? { paidBy: recordedBy } : {}),
+        },
+        { jobId: `${clientJobName}:${paymentRecord.id}` },
+      );
+    }
+
+    if (orgId) {
+      await this.emailsQueue.add(
+        EmailJobName.PAYMENT_CONFIRMATION,
+        {
+          invoiceId:        id,
+          invoiceNumber:    invoice.invoiceNumber,
+          clientName,
+          amountPaid:       newAmountPaid,
+          remainingBalance: newRemainingBalance,
+          isFullyPaid,
+          paymentDate:      paymentDate.toISOString(),
+          recordedBy,
+          organizationId:   orgId,
+          paymentRecordId:  paymentRecord.id,
+        },
+        { jobId: `${EmailJobName.PAYMENT_CONFIRMATION}:${paymentRecord.id}` },
+      );
+    }
+
     this.logger.log(
       `Payment of ${paymentAmount} on ${invoice.invoiceNumber} — ` +
       `status: ${newStatus}, remaining: ${newRemainingBalance}`,
@@ -338,6 +527,28 @@ export class InvoicesService {
       }
     }
 
+    // CFO audit alert for payment reversal
+    const orgId      = (updatedInvoice as any).client?.organizationId;
+    const clientName = (updatedInvoice as any).client?.name;
+    const revertedByUser = (updatedInvoice as any).payments?.find((p: any) => p.id === dto.paymentRecordId)?.user?.name;
+
+    if (orgId) {
+      await this.emailsQueue.add(
+        EmailJobName.PAYMENT_REVERTED,
+        {
+          invoiceId:       id,
+          invoiceNumber:   invoice.invoiceNumber,
+          clientName,
+          revertedAmount,
+          restoredStatus,
+          revertedBy:      revertedByUser,
+          organizationId:  orgId,
+          paymentRecordId: dto.paymentRecordId,
+        },
+        { jobId: `${EmailJobName.PAYMENT_REVERTED}:${dto.paymentRecordId}` },
+      );
+    }
+
     this.logger.log(
       `Payment of ${revertedAmount} reverted on ${invoice.invoiceNumber} ` +
       `— restored: ${restoredStatus}`,
@@ -369,17 +580,44 @@ export class InvoicesService {
     });
 
     const newlyOverdue = await this.prisma.invoice.findMany({
-      where:  { status: 'OVERDUE', slaViolations: { none: {} } },
-      select: { id: true, clientId: true, dueDate: true },
+      where:   { status: 'OVERDUE', slaViolations: { none: {} } },
+      include: {
+        client: { select: { id: true, name: true, organizationId: true } },
+      },
     });
+
+    const affectedClientIds = new Set<string>();
     for (const inv of newlyOverdue) {
+      const daysLate = differenceInDays(today, inv.dueDate);
       await this.prisma.slaViolation.create({
         data: {
           clientId:  inv.clientId,
           invoiceId: inv.id,
-          daysLate:  differenceInDays(today, inv.dueDate),
+          daysLate,
         },
       });
+
+      // Finance team alert for new SLA breach
+      await this.emailsQueue.add(
+        EmailJobName.NEW_SLA_VIOLATION,
+        {
+          invoiceId:      inv.id,
+          invoiceNumber:  inv.invoiceNumber,
+          clientName:     inv.client.name,
+          amount:         inv.invoiceAmount,
+          dueDate:        inv.dueDate.toISOString(),
+          daysLate,
+          organizationId: inv.client.organizationId,
+        },
+        { jobId: `${EmailJobName.NEW_SLA_VIOLATION}:${inv.id}` },
+      );
+
+      affectedClientIds.add(inv.clientId);
+    }
+
+    // Recalculate PDI immediately for clients with newly overdue invoices
+    for (const clientId of affectedClientIds) {
+      await this.clientsService.recalculatePDI(clientId);
     }
 
     const total = dueTodayResult.count + overdueResult.count;
@@ -443,6 +681,16 @@ export class InvoicesService {
   }
 
   // ── PRIVATE HELPERS ────────────────────────────────────────────────────────
+
+  private resolveStatus(dueDate: Date): InvoiceStatus {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = addDays(today, 1);
+    if (dueDate < today)    return 'OVERDUE';
+    if (dueDate < tomorrow) return 'DUE_TODAY';
+    return 'PENDING';
+  }
+
   private enrichInvoice(invoice: any) {
     const today             = new Date();
     const daysOverdue       = ['OVERDUE', 'PARTIALLY_PAID'].includes(invoice.status)

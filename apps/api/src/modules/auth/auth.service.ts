@@ -2,6 +2,8 @@ import {
   Injectable, UnauthorizedException, ConflictException,
   BadRequestException, Logger,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -11,6 +13,7 @@ import { PrismaService } from '../../config/prisma.service';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { EmailJobName } from '../email/email.types';
 
 @Injectable()
 export class AuthService {
@@ -21,6 +24,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly usersService: UsersService,
+    @InjectQueue('emails') private emailsQueue: Queue,
   ) {}
 
   // ── Register ──────────────────────────────────
@@ -52,6 +56,24 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.saveRefreshToken(user.id, tokens.refreshToken);
+
+    // Welcome email to the new user
+    const orgName = await this.prisma.organization.findUnique({
+      where: { id: user.organizationId },
+      select: { name: true },
+    });
+    await this.emailsQueue.add(
+      EmailJobName.WELCOME_USER,
+      {
+        userId:           user.id,
+        userName:         user.name,
+        userEmail:        user.email,
+        role:             user.role,
+        organizationName: orgName?.name ?? dto.organizationName,
+      },
+      { jobId: `${EmailJobName.WELCOME_USER}:${user.id}` },
+    );
+
     this.logger.log(`New user registered: ${user.email}`);
     return { user, ...tokens };
   }

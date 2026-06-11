@@ -63,8 +63,9 @@ export class ClientsController {
     @Param('id') id: string,
     @Body('reason') reason: string,
     @CurrentUser('organizationId') orgId: string,
+    @CurrentUser('name') userName: string,
   ) {
-    return this.clientsService.blockClient(id, reason, orgId);
+    return this.clientsService.blockClient(id, reason, orgId, userName);
   }
 
   @Patch(':id/unblock')

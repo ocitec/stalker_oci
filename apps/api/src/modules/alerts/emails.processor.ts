@@ -1,416 +1,392 @@
-import { Process, Processor } from '@nestjs/bull';
+import {
+  Process, Processor, OnQueueFailed, OnQueueCompleted,
+} from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Job } from 'bull';
-import * as nodemailer from 'nodemailer';
+import { PrismaService } from '../../config/prisma.service';
+import { EmailService } from '../email/email.service';
+import { EmailTemplateService } from '../email/email-template.service';
+import { EmailJobName } from '../email/email.types';
+import type {
+  InvoiceCreatedPayload,
+  PaymentReceiptPayload,
+  PartialPaymentReceiptPayload,
+  PreDueAlertPayload,
+  OverdueAlertPayload,
+  AccountBlockedPayload,
+  AccountUnblockedPayload,
+  PdiWarningPayload,
+  PaymentConfirmationPayload,
+  PaymentRevertedPayload,
+  CreditLimitBreachedPayload,
+  RiskStatusChangedPayload,
+  ChronicClientPayload,
+  NewSlaViolationPayload,
+  ClientBlockedAuditPayload,
+  StaleFollowUpPayload,
+  WeeklyCfoReportPayload,
+  NewClientOnboardedPayload,
+  WelcomeUserPayload,
+  RoleChangedPayload,
+} from '../email/email.types';
 
-// ── Job payload shapes ──────────────────────────────────────────────────────
-interface PreDueAlertPayload {
-  invoiceId: string;
-  invoiceNumber: string;
-  clientName: string;
-  clientEmail: string;
-  amount: number | string;
-  dueDate: string | Date;
-  daysUntilDue: number;
-}
-
-interface OverdueAlertPayload {
-  invoiceId: string;
-  invoiceNumber: string;
-  clientName: string;
-  clientEmail: string;
-  amount: number | string;
-  dueDate: string | Date;
-  daysOverdue: number;
-}
-
-interface PdiWarningPayload {
-  clientId: string;
-  clientName: string;
-  clientEmail: string;
-  pdiScore: number;
-  isBlocked: boolean;
-}
-
-interface StaleFollowUpPayload {
-  invoiceId: string;
-  invoiceNumber: string;
-  clientName: string;
-  assigneeEmail: string;
-  daysSinceFollowUp: number;
-  amount: number | string;
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-function fmtCurrency(value: number | string): string {
-  const n = typeof value === 'string' ? parseFloat(value) : value;
-  return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 0 }).format(n);
-}
-
-function fmtDate(date: string | Date): string {
-  return new Date(date).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' });
-}
-
-function urgencyColor(days: number): string {
-  if (days <= 1) return '#F43F5E';
-  if (days <= 3) return '#F59E0B';
-  return '#3B82F6';
-}
-
-// ── HTML Email Templates ─────────────────────────────────────────────────────
-function baseTemplate(content: string, previewText: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>STALKER — Cash Control</title>
-  <!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->
-</head>
-<body style="margin:0;padding:0;background:#0C0F1A;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <!-- Preview text -->
-  <div style="display:none;max-height:0;overflow:hidden;color:#0C0F1A;">${previewText}</div>
-
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0C0F1A;padding:32px 16px;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
-
-        <!-- Logo / Brand header -->
-        <tr>
-          <td style="padding:0 0 24px 0;">
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td>
-                  <span style="font-family:'SF Mono',monospace;font-size:18px;font-weight:700;color:#F59E0B;letter-spacing:0.08em;">
-                    STALKER
-                  </span>
-                  <span style="font-size:12px;color:#5A6E96;margin-left:8px;">Cash Control System</span>
-                </td>
-                <td align="right">
-                  <span style="font-size:10px;color:#5A6E96;font-family:'SF Mono',monospace;">
-                    ${new Date().toLocaleDateString('en-NG', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-                  </span>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-
-        <!-- Card body -->
-        <tr>
-          <td style="background:#131929;border:1px solid #2A3A5C;border-radius:12px;padding:32px;">
-            ${content}
-          </td>
-        </tr>
-
-        <!-- Footer -->
-        <tr>
-          <td style="padding:20px 0 0 0;text-align:center;">
-            <p style="margin:0;font-size:10px;color:#5A6E96;line-height:1.6;">
-              This is an automated notification from STALKER Cash Control.<br />
-              Do not reply to this email. To manage your notifications, log in to the dashboard.
-            </p>
-          </td>
-        </tr>
-
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
-}
-
-function preDueTemplate(p: PreDueAlertPayload): string {
-  const color = urgencyColor(p.daysUntilDue);
-  const urgencyLabel = p.daysUntilDue === 1 ? 'Due Tomorrow' : `Due in ${p.daysUntilDue} Days`;
-
-  const content = `
-    <!-- Alert badge -->
-    <div style="display:inline-block;background:${color}22;border:1px solid ${color}55;border-radius:6px;padding:4px 10px;margin-bottom:20px;">
-      <span style="font-size:11px;font-weight:700;color:${color};letter-spacing:0.06em;">⏰ ${urgencyLabel.toUpperCase()}</span>
-    </div>
-
-    <!-- Headline -->
-    <h1 style="margin:0 0 8px 0;font-size:22px;font-weight:700;color:#E8EDF8;line-height:1.3;">
-      Invoice Due Soon
-    </h1>
-    <p style="margin:0 0 28px 0;font-size:14px;color:#8B9DC3;line-height:1.6;">
-      A payment is approaching its due date. Ensure collection action is underway.
-    </p>
-
-    <!-- Invoice detail block -->
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#1A2236;border:1px solid #2A3A5C;border-radius:8px;margin-bottom:24px;">
-      <tr><td style="padding:20px 24px;">
-        <table width="100%" cellpadding="0" cellspacing="0">
-          ${detailRow('Client', `<strong style="color:#E8EDF8;">${p.clientName}</strong>`)}
-          ${detailRow('Invoice', `<code style="font-family:'SF Mono',monospace;color:#F59E0B;">${p.invoiceNumber}</code>`)}
-          ${detailRow('Amount', `<strong style="font-family:'SF Mono',monospace;font-size:16px;color:#E8EDF8;">${fmtCurrency(p.amount)}</strong>`)}
-          ${detailRow('Due Date', `<strong style="color:${color};">${fmtDate(p.dueDate)}</strong>`)}
-          ${detailRow('Days Remaining', `<strong style="font-family:'SF Mono',monospace;font-size:18px;color:${color};">${p.daysUntilDue}d</strong>`)}
-        </table>
-      </td></tr>
-    </table>
-
-    <!-- Urgency bar -->
-    <div style="background:#1F2B42;border-radius:4px;height:6px;margin-bottom:28px;overflow:hidden;">
-      <div style="background:${color};height:100%;width:${Math.max(10, 100 - (p.daysUntilDue / 7) * 100)}%;border-radius:4px;"></div>
-    </div>
-
-    <!-- CTA -->
-    <div style="text-align:center;">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard/invoices"
-         style="display:inline-block;background:#F59E0B;color:#000;font-size:13px;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.03em;">
-        View Invoice in Dashboard →
-      </a>
-    </div>
-  `;
-
-  return baseTemplate(content, `${urgencyLabel}: ${p.invoiceNumber} — ${fmtCurrency(p.amount)} from ${p.clientName}`);
-}
-
-function overdueTemplate(p: OverdueAlertPayload): string {
-  const content = `
-    <div style="display:inline-block;background:#F43F5E22;border:1px solid #F43F5E55;border-radius:6px;padding:4px 10px;margin-bottom:20px;">
-      <span style="font-size:11px;font-weight:700;color:#F43F5E;letter-spacing:0.06em;">🚨 OVERDUE — ${p.daysOverdue} DAYS PAST DUE</span>
-    </div>
-
-    <h1 style="margin:0 0 8px 0;font-size:22px;font-weight:700;color:#E8EDF8;">Invoice Overdue</h1>
-    <p style="margin:0 0 28px 0;font-size:14px;color:#8B9DC3;line-height:1.6;">
-      This invoice has not been paid and is now ${p.daysOverdue} day(s) past its due date. Immediate follow-up required.
-    </p>
-
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#1A2236;border:1px solid #F43F5E33;border-radius:8px;margin-bottom:24px;">
-      <tr><td style="padding:20px 24px;">
-        <table width="100%" cellpadding="0" cellspacing="0">
-          ${detailRow('Client', `<strong style="color:#E8EDF8;">${p.clientName}</strong>`)}
-          ${detailRow('Invoice', `<code style="font-family:'SF Mono',monospace;color:#F59E0B;">${p.invoiceNumber}</code>`)}
-          ${detailRow('Amount Outstanding', `<strong style="font-family:'SF Mono',monospace;font-size:16px;color:#F43F5E;">${fmtCurrency(p.amount)}</strong>`)}
-          ${detailRow('Original Due Date', `<span style="color:#8B9DC3;">${fmtDate(p.dueDate)}</span>`)}
-          ${detailRow('Days Overdue', `<strong style="font-family:'SF Mono',monospace;font-size:18px;color:#F43F5E;">${p.daysOverdue}d</strong>`)}
-        </table>
-      </td></tr>
-    </table>
-
-    <div style="background:#F43F5E15;border:1px solid #F43F5E33;border-radius:8px;padding:14px 18px;margin-bottom:24px;">
-      <p style="margin:0;font-size:12px;color:#F43F5E;line-height:1.6;">
-        ⚠️ This client's Payment Discipline Index (PDI) may be downgraded if payment is not received. Clients with PDI below 30 are automatically blocked from new credit.
-      </p>
-    </div>
-
-    <div style="text-align:center;">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard/followups"
-         style="display:inline-block;background:#F43F5E;color:#fff;font-size:13px;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;">
-        Log Follow-up Now →
-      </a>
-    </div>
-  `;
-
-  return baseTemplate(content, `OVERDUE: ${p.invoiceNumber} — ${fmtCurrency(p.amount)} is ${p.daysOverdue}d past due`);
-}
-
-function pdiWarningTemplate(p: PdiWarningPayload): string {
-  const statusColor = p.isBlocked ? '#F43F5E' : '#F59E0B';
-  const statusLabel = p.isBlocked ? 'AUTOMATICALLY BLOCKED' : 'PDI THRESHOLD WARNING';
-
-  const content = `
-    <div style="display:inline-block;background:${statusColor}22;border:1px solid ${statusColor}55;border-radius:6px;padding:4px 10px;margin-bottom:20px;">
-      <span style="font-size:11px;font-weight:700;color:${statusColor};letter-spacing:0.06em;">🛡 ${statusLabel}</span>
-    </div>
-
-    <h1 style="margin:0 0 8px 0;font-size:22px;font-weight:700;color:#E8EDF8;">PDI Alert: ${p.clientName}</h1>
-    <p style="margin:0 0 28px 0;font-size:14px;color:#8B9DC3;line-height:1.6;">
-      ${p.isBlocked
-        ? `${p.clientName}'s Payment Discipline Index has dropped below 30. They have been automatically blocked from receiving new credit.`
-        : `${p.clientName}'s Payment Discipline Index has fallen to a concerning level and requires CFO review.`
-      }
-    </p>
-
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#1A2236;border:1px solid ${statusColor}33;border-radius:8px;margin-bottom:24px;">
-      <tr><td style="padding:20px 24px;">
-        <table width="100%" cellpadding="0" cellspacing="0">
-          ${detailRow('Client', `<strong style="color:#E8EDF8;">${p.clientName}</strong>`)}
-          ${detailRow('Current PDI', `<strong style="font-family:'SF Mono',monospace;font-size:20px;color:${statusColor};">${p.pdiScore}</strong>`)}
-          ${detailRow('Auto-Block Threshold', `<span style="font-family:'SF Mono',monospace;color:#8B9DC3;">30</span>`)}
-          ${detailRow('Status', `<strong style="color:${statusColor};">${p.isBlocked ? 'BLOCKED' : 'AT RISK'}</strong>`)}
-        </table>
-      </td></tr>
-    </table>
-
-    <div style="text-align:center;">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard/clients"
-         style="display:inline-block;background:${statusColor};color:${p.isBlocked ? '#fff' : '#000'};font-size:13px;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;">
-        Review Client →
-      </a>
-    </div>
-  `;
-
-  return baseTemplate(content, `PDI Alert: ${p.clientName} — Score ${p.pdiScore}${p.isBlocked ? ' (Blocked)' : ''}`);
-}
-
-function staleFollowUpTemplate(p: StaleFollowUpPayload): string {
-  const content = `
-    <div style="display:inline-block;background:#F59E0B22;border:1px solid #F59E0B55;border-radius:6px;padding:4px 10px;margin-bottom:20px;">
-      <span style="font-size:11px;font-weight:700;color:#F59E0B;letter-spacing:0.06em;">⏱ FOLLOW-UP OVERDUE — ${p.daysSinceFollowUp} DAYS</span>
-    </div>
-
-    <h1 style="margin:0 0 8px 0;font-size:22px;font-weight:700;color:#E8EDF8;">Stale Follow-up Alert</h1>
-    <p style="margin:0 0 28px 0;font-size:14px;color:#8B9DC3;line-height:1.6;">
-      An overdue invoice has not had any follow-up contact in ${p.daysSinceFollowUp} days. Contact the client immediately to maintain collection momentum.
-    </p>
-
-    <table width="100%" cellpadding="0" cellspacing="0" style="background:#1A2236;border:1px solid #F59E0B33;border-radius:8px;margin-bottom:24px;">
-      <tr><td style="padding:20px 24px;">
-        <table width="100%" cellpadding="0" cellspacing="0">
-          ${detailRow('Client', `<strong style="color:#E8EDF8;">${p.clientName}</strong>`)}
-          ${detailRow('Invoice', `<code style="font-family:'SF Mono',monospace;color:#F59E0B;">${p.invoiceNumber}</code>`)}
-          ${detailRow('Amount', `<strong style="font-family:'SF Mono',monospace;color:#E8EDF8;">${fmtCurrency(p.amount)}</strong>`)}
-          ${detailRow('Days Since Contact', `<strong style="font-family:'SF Mono',monospace;font-size:18px;color:#F59E0B;">${p.daysSinceFollowUp}d</strong>`)}
-        </table>
-      </td></tr>
-    </table>
-
-    <div style="text-align:center;">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard/followups"
-         style="display:inline-block;background:#F59E0B;color:#000;font-size:13px;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;">
-        Log Follow-up →
-      </a>
-    </div>
-  `;
-
-  return baseTemplate(content, `Stale Follow-up: ${p.invoiceNumber} — No contact in ${p.daysSinceFollowUp} days`);
-}
-
-function detailRow(label: string, value: string): string {
-  return `
-    <tr>
-      <td style="padding:8px 0;border-bottom:1px solid #2A3A5C;font-size:12px;color:#5A6E96;width:45%;">${label}</td>
-      <td style="padding:8px 0;border-bottom:1px solid #2A3A5C;font-size:13px;text-align:right;">${value}</td>
-    </tr>
-  `;
-}
-
-// ── Processor ────────────────────────────────────────────────────────────────
 @Processor('emails')
 export class EmailsProcessor {
   private readonly logger = new Logger(EmailsProcessor.name);
-  private transporter: nodemailer.Transporter;
 
-  constructor(private readonly configService: ConfigService) {
-    const mailCfg = this.configService.get('mail');
+  constructor(
+    private readonly emailService: EmailService,
+    private readonly templates: EmailTemplateService,
+    private readonly prisma: PrismaService,
+  ) {}
 
-    this.transporter = nodemailer.createTransport({
-      host:   mailCfg?.host   || process.env.MAIL_HOST   || 'smtp.mailtrap.io',
-      port:   mailCfg?.port   || parseInt(process.env.MAIL_PORT || '587', 10),
-      secure: (mailCfg?.port || parseInt(process.env.MAIL_PORT || '587', 10)) === 465,
-      auth: {
-        user: mailCfg?.user || process.env.MAIL_USER,
-        pass: mailCfg?.pass || process.env.MAIL_PASS,
-      },
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  private async financeRecipients(organizationId: string): Promise<string[]> {
+    const users = await this.prisma.user.findMany({
+      where: { organizationId, isActive: true, role: { in: ['CFO', 'ADMIN', 'FINANCE'] } },
+      select: { email: true },
+    });
+    return users.map(u => u.email).filter(Boolean);
+  }
+
+  private async cfoRecipients(organizationId: string): Promise<string[]> {
+    const users = await this.prisma.user.findMany({
+      where: { organizationId, isActive: true, role: { in: ['CFO', 'ADMIN'] } },
+      select: { email: true },
+    });
+    return users.map(u => u.email).filter(Boolean);
+  }
+
+  private async sendToMany(
+    recipients: string[],
+    subject: string,
+    html: string,
+    jobName: string,
+    idempotencyBase?: string,
+    metadata?: Record<string, unknown>,
+  ) {
+    if (!recipients.length) {
+      this.logger.warn(`No recipients for job ${jobName} — skipping`);
+      return;
+    }
+    await Promise.allSettled(
+      recipients.map((to) =>
+        this.emailService.send({
+          to, subject, html, jobName,
+          idempotencyKey: idempotencyBase ? `${idempotencyBase}:${to}` : undefined,
+          metadata,
+        }),
+      ),
+    );
+  }
+
+  // ── Client: Invoice Created ────────────────────────────────────────────────
+  @Process(EmailJobName.INVOICE_CREATED)
+  async handleInvoiceCreated(job: Job<InvoiceCreatedPayload>) {
+    const p = job.data;
+    if (!p.clientEmail) return;
+    const { subject, html } = this.templates.invoiceCreated(p);
+    await this.emailService.send({
+      to: p.clientEmail, subject, html,
+      jobName: EmailJobName.INVOICE_CREATED,
+      idempotencyKey: `${EmailJobName.INVOICE_CREATED}:${p.invoiceId}`,
+      metadata: { invoiceId: p.invoiceId, invoiceNumber: p.invoiceNumber },
     });
   }
 
-  // ── Pre-due alert (7d / 3d / 1d before due) ────────────────────────────────
-  @Process('send-pre-due-alert')
+  // ── Client: Full Payment Receipt ───────────────────────────────────────────
+  @Process(EmailJobName.PAYMENT_RECEIPT)
+  async handlePaymentReceipt(job: Job<PaymentReceiptPayload & { paymentRecordId: string }>) {
+    const p = job.data;
+    if (!p.clientEmail) return;
+    const { subject, html } = this.templates.paymentReceipt(p);
+    await this.emailService.send({
+      to: p.clientEmail, subject, html,
+      jobName: EmailJobName.PAYMENT_RECEIPT,
+      idempotencyKey: `${EmailJobName.PAYMENT_RECEIPT}:${p.paymentRecordId}`,
+      metadata: { invoiceId: p.invoiceId, invoiceNumber: p.invoiceNumber },
+    });
+  }
+
+  // ── Client: Partial Payment Receipt ───────────────────────────────────────
+  @Process(EmailJobName.PARTIAL_PAYMENT_RECEIPT)
+  async handlePartialPaymentReceipt(job: Job<PartialPaymentReceiptPayload & { paymentRecordId: string }>) {
+    const p = job.data;
+    if (!p.clientEmail) return;
+    const { subject, html } = this.templates.partialPaymentReceipt(p);
+    await this.emailService.send({
+      to: p.clientEmail, subject, html,
+      jobName: EmailJobName.PARTIAL_PAYMENT_RECEIPT,
+      idempotencyKey: `${EmailJobName.PARTIAL_PAYMENT_RECEIPT}:${p.paymentRecordId}`,
+      metadata: { invoiceId: p.invoiceId },
+    });
+  }
+
+  // ── Client: Pre-Due Alert ──────────────────────────────────────────────────
+  @Process(EmailJobName.PRE_DUE_ALERT)
   async handlePreDueAlert(job: Job<PreDueAlertPayload>) {
     const p = job.data;
-    this.logger.log(`Processing pre-due alert for invoice ${p.invoiceNumber} (${p.daysUntilDue}d)`);
-
-    if (!p.clientEmail) {
-      this.logger.warn(`No email for client on invoice ${p.invoiceNumber} — skipping`);
-      return;
-    }
-
-    const urgencyLabel = p.daysUntilDue === 1 ? 'Due Tomorrow' : `Due in ${p.daysUntilDue} Days`;
-
-    await this.sendEmail({
-      to: p.clientEmail,
-      subject: `[STALKER] ${urgencyLabel}: Invoice ${p.invoiceNumber} — ${fmtCurrency(p.amount)}`,
-      html: preDueTemplate(p),
+    if (!p.clientEmail) return;
+    const { subject, html } = this.templates.preDueAlert(p);
+    const alertType = p.daysUntilDue === 7 ? 'DUE_7_DAYS' : p.daysUntilDue === 3 ? 'DUE_3_DAYS' : 'DUE_1_DAY';
+    await this.emailService.send({
+      to: p.clientEmail, subject, html,
+      jobName: EmailJobName.PRE_DUE_ALERT,
+      idempotencyKey: `${EmailJobName.PRE_DUE_ALERT}:${p.invoiceId}:${alertType}`,
+      metadata: { invoiceId: p.invoiceId, daysUntilDue: p.daysUntilDue },
     });
-
-    this.logger.log(`Pre-due alert sent to ${p.clientEmail} for ${p.invoiceNumber}`);
   }
 
-  // ── Overdue alert ──────────────────────────────────────────────────────────
-  @Process('send-overdue-alert')
+  // ── Client: Overdue Alert ──────────────────────────────────────────────────
+  @Process(EmailJobName.OVERDUE_ALERT)
   async handleOverdueAlert(job: Job<OverdueAlertPayload>) {
     const p = job.data;
-    this.logger.log(`Processing overdue alert for invoice ${p.invoiceNumber}`);
-
-    if (!p.clientEmail) {
-      this.logger.warn(`No email for client on invoice ${p.invoiceNumber} — skipping`);
-      return;
-    }
-
-    await this.sendEmail({
-      to: p.clientEmail,
-      subject: `[STALKER] OVERDUE ${p.daysOverdue}d: Invoice ${p.invoiceNumber} — ${fmtCurrency(p.amount)}`,
-      html: overdueTemplate(p),
+    if (!p.clientEmail) return;
+    const { subject, html } = this.templates.overdueAlert(p);
+    // No idempotency key — daily resend is intentional; the cron guards via alertsSent JSON
+    await this.emailService.send({
+      to: p.clientEmail, subject, html,
+      jobName: EmailJobName.OVERDUE_ALERT,
+      metadata: { invoiceId: p.invoiceId, daysOverdue: p.daysOverdue },
     });
-
-    this.logger.log(`Overdue alert sent to ${p.clientEmail} for ${p.invoiceNumber}`);
   }
 
-  // ── PDI threshold / auto-block warning ────────────────────────────────────
-  @Process('send-pdi-warning')
-  async handlePdiWarning(job: Job<PdiWarningPayload>) {
+  // ── Client: Account Blocked ────────────────────────────────────────────────
+  @Process(EmailJobName.ACCOUNT_BLOCKED)
+  async handleAccountBlocked(job: Job<AccountBlockedPayload>) {
     const p = job.data;
-    this.logger.log(`Processing PDI warning for client ${p.clientName} (PDI: ${p.pdiScore})`);
-
-    if (!p.clientEmail) {
-      this.logger.warn(`No email for client ${p.clientName} — skipping`);
-      return;
-    }
-
-    const subject = p.isBlocked
-      ? `[STALKER] Client Blocked: ${p.clientName} — PDI ${p.pdiScore}`
-      : `[STALKER] PDI Warning: ${p.clientName} — Score ${p.pdiScore}`;
-
-    await this.sendEmail({ to: p.clientEmail, subject, html: pdiWarningTemplate(p) });
-    this.logger.log(`PDI warning sent for ${p.clientName}`);
+    if (!p.clientEmail) return;
+    const { subject, html } = this.templates.accountBlocked(p);
+    const date = new Date().toISOString().split('T')[0];
+    await this.emailService.send({
+      to: p.clientEmail, subject, html,
+      jobName: EmailJobName.ACCOUNT_BLOCKED,
+      idempotencyKey: `${EmailJobName.ACCOUNT_BLOCKED}:${p.clientId}:${date}`,
+      metadata: { clientId: p.clientId, isAutoBlock: p.isAutoBlock },
+    });
   }
 
-  // ── Stale follow-up alert (internal) ──────────────────────────────────────
-  @Process('send-stale-followup')
+  // ── Client: Account Unblocked ──────────────────────────────────────────────
+  @Process(EmailJobName.ACCOUNT_UNBLOCKED)
+  async handleAccountUnblocked(job: Job<AccountUnblockedPayload>) {
+    const p = job.data;
+    if (!p.clientEmail) return;
+    const { subject, html } = this.templates.accountUnblocked(p);
+    const date = new Date().toISOString().split('T')[0];
+    await this.emailService.send({
+      to: p.clientEmail, subject, html,
+      jobName: EmailJobName.ACCOUNT_UNBLOCKED,
+      idempotencyKey: `${EmailJobName.ACCOUNT_UNBLOCKED}:${p.clientId}:${date}`,
+      metadata: { clientId: p.clientId },
+    });
+  }
+
+  // ── Internal: PDI Warning ──────────────────────────────────────────────────
+  @Process(EmailJobName.PDI_WARNING)
+  async handlePdiWarning(job: Job<PdiWarningPayload & { organizationId: string }>) {
+    const p = job.data;
+    const { subject, html } = this.templates.pdiWarning(p);
+    const date = new Date().toISOString().split('T')[0];
+    const recipients = await this.cfoRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.PDI_WARNING,
+      `${EmailJobName.PDI_WARNING}:${p.clientId}:${date}`,
+      { clientId: p.clientId, pdiScore: p.pdiScore },
+    );
+  }
+
+  // ── Finance: Payment Confirmation ──────────────────────────────────────────
+  @Process(EmailJobName.PAYMENT_CONFIRMATION)
+  async handlePaymentConfirmation(job: Job<PaymentConfirmationPayload & { paymentRecordId: string }>) {
+    const p = job.data;
+    const { subject, html } = this.templates.paymentConfirmation(p);
+    const recipients = await this.financeRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.PAYMENT_CONFIRMATION,
+      `${EmailJobName.PAYMENT_CONFIRMATION}:${p.paymentRecordId}`,
+      { invoiceId: p.invoiceId, isFullyPaid: p.isFullyPaid },
+    );
+  }
+
+  // ── Finance: Payment Reverted ──────────────────────────────────────────────
+  @Process(EmailJobName.PAYMENT_REVERTED)
+  async handlePaymentReverted(job: Job<PaymentRevertedPayload & { paymentRecordId: string }>) {
+    const p = job.data;
+    const { subject, html } = this.templates.paymentReverted(p);
+    const recipients = await this.cfoRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.PAYMENT_REVERTED,
+      `${EmailJobName.PAYMENT_REVERTED}:${p.paymentRecordId}`,
+      { invoiceId: p.invoiceId },
+    );
+  }
+
+  // ── Finance: Credit Limit Breached ────────────────────────────────────────
+  @Process(EmailJobName.CREDIT_LIMIT_BREACHED)
+  async handleCreditLimitBreached(job: Job<CreditLimitBreachedPayload>) {
+    const p = job.data;
+    const { subject, html } = this.templates.creditLimitBreached(p);
+    const recipients = await this.cfoRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.CREDIT_LIMIT_BREACHED,
+      `${EmailJobName.CREDIT_LIMIT_BREACHED}:${p.invoiceId}`,
+      { clientId: p.clientId, utilizationPercent: p.utilizationPercent },
+    );
+  }
+
+  // ── Finance: Risk Status Changed ───────────────────────────────────────────
+  @Process(EmailJobName.RISK_STATUS_CHANGED)
+  async handleRiskStatusChanged(job: Job<RiskStatusChangedPayload>) {
+    const p = job.data;
+    const { subject, html } = this.templates.riskStatusChanged(p);
+    const date = new Date().toISOString().split('T')[0];
+    const recipients = await this.cfoRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.RISK_STATUS_CHANGED,
+      `${EmailJobName.RISK_STATUS_CHANGED}:${p.clientId}:${p.newRisk}:${date}`,
+      { clientId: p.clientId, previousRisk: p.previousRisk, newRisk: p.newRisk },
+    );
+  }
+
+  // ── Finance: Chronic Client Escalation ───────────────────────────────────
+  @Process(EmailJobName.CHRONIC_CLIENT)
+  async handleChronicClient(job: Job<ChronicClientPayload>) {
+    const p = job.data;
+    const { subject, html } = this.templates.chronicClient(p);
+    const date = new Date().toISOString().split('T')[0];
+    const recipients = await this.cfoRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.CHRONIC_CLIENT,
+      `${EmailJobName.CHRONIC_CLIENT}:${p.clientId}:${date}`,
+      { clientId: p.clientId, pdiScore: p.pdiScore },
+    );
+  }
+
+  // ── Finance: New SLA Violation ────────────────────────────────────────────
+  @Process(EmailJobName.NEW_SLA_VIOLATION)
+  async handleNewSlaViolation(job: Job<NewSlaViolationPayload>) {
+    const p = job.data;
+    const { subject, html } = this.templates.newSlaViolation(p);
+    const recipients = await this.financeRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.NEW_SLA_VIOLATION,
+      `${EmailJobName.NEW_SLA_VIOLATION}:${p.invoiceId}`,
+      { invoiceId: p.invoiceId, daysLate: p.daysLate },
+    );
+  }
+
+  // ── Admin: Client Blocked Audit ───────────────────────────────────────────
+  @Process(EmailJobName.CLIENT_BLOCKED_AUDIT)
+  async handleClientBlockedAudit(job: Job<ClientBlockedAuditPayload>) {
+    const p = job.data;
+    const { subject, html } = this.templates.clientBlockedAudit(p);
+    const date = new Date().toISOString().split('T')[0];
+    const recipients = await this.cfoRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.CLIENT_BLOCKED_AUDIT,
+      `${EmailJobName.CLIENT_BLOCKED_AUDIT}:${p.clientId}:${date}`,
+      { clientId: p.clientId },
+    );
+  }
+
+  // ── Internal: Stale Follow-up ─────────────────────────────────────────────
+  @Process(EmailJobName.STALE_FOLLOWUP)
   async handleStaleFollowUp(job: Job<StaleFollowUpPayload>) {
     const p = job.data;
-    this.logger.log(`Processing stale follow-up alert for ${p.invoiceNumber}`);
-
-    if (!p.assigneeEmail) {
-      this.logger.warn(`No assignee email for stale follow-up ${p.invoiceNumber} — skipping`);
-      return;
-    }
-
-    await this.sendEmail({
-      to: p.assigneeEmail,
-      subject: `[STALKER] Stale Follow-up: ${p.clientName} — ${p.daysSinceFollowUp}d no contact`,
-      html: staleFollowUpTemplate(p),
+    if (!p.assigneeEmail) return;
+    const { subject, html } = this.templates.staleFollowUp(p);
+    await this.emailService.send({
+      to: p.assigneeEmail, subject, html,
+      jobName: EmailJobName.STALE_FOLLOWUP,
+      metadata: { invoiceId: p.invoiceId, daysSinceFollowUp: p.daysSinceFollowUp },
     });
-
-    this.logger.log(`Stale follow-up alert sent to ${p.assigneeEmail}`);
   }
 
-  // ── Core send helper ───────────────────────────────────────────────────────
-  private async sendEmail(opts: { to: string; subject: string; html: string }) {
-    const from =
-      this.configService.get('mail.from') ||
-      process.env.MAIL_FROM ||
-      'STALKER Cash Control <noreply@stalker-cashcontrol.com>';
+  // ── CFO: Weekly Report ────────────────────────────────────────────────────
+  @Process(EmailJobName.WEEKLY_CFO_REPORT)
+  async handleWeeklyCfoReport(job: Job<WeeklyCfoReportPayload>) {
+    const p = job.data;
+    const { subject, html } = this.templates.weeklyCfoReport(p);
+    const recipients = await this.cfoRecipients(p.organizationId);
+    const week = this.isoWeek(new Date());
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.WEEKLY_CFO_REPORT,
+      `${EmailJobName.WEEKLY_CFO_REPORT}:${p.organizationId}:${week}`,
+      { organizationId: p.organizationId, week },
+    );
+  }
 
-    try {
-      const info = await this.transporter.sendMail({
-        from,
-        to:      opts.to,
-        subject: opts.subject,
-        html:    opts.html,
-      });
+  // ── Operational: New Client Onboarded ────────────────────────────────────
+  @Process(EmailJobName.NEW_CLIENT_ONBOARDED)
+  async handleNewClientOnboarded(job: Job<NewClientOnboardedPayload>) {
+    const p = job.data;
+    const { subject, html } = this.templates.newClientOnboarded(p);
+    const recipients = await this.financeRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.NEW_CLIENT_ONBOARDED,
+      `${EmailJobName.NEW_CLIENT_ONBOARDED}:${p.clientId}`,
+      { clientId: p.clientId },
+    );
+  }
 
-      this.logger.log(`Email sent: ${info.messageId}`);
-      return info;
-    } catch (err) {
-      this.logger.error(`Failed to send email to ${opts.to}: ${(err as Error).message}`);
-      throw err; // BullMQ will retry per the queue's backoff config
-    }
+  // ── Operational: Welcome User ─────────────────────────────────────────────
+  @Process(EmailJobName.WELCOME_USER)
+  async handleWelcomeUser(job: Job<WelcomeUserPayload>) {
+    const p = job.data;
+    if (!p.userEmail) return;
+    const { subject, html } = this.templates.welcomeUser(p);
+    await this.emailService.send({
+      to: p.userEmail, subject, html,
+      jobName: EmailJobName.WELCOME_USER,
+      idempotencyKey: `${EmailJobName.WELCOME_USER}:${p.userId}`,
+      metadata: { userId: p.userId, role: p.role },
+    });
+  }
+
+  // ── Operational: Role Changed ─────────────────────────────────────────────
+  @Process(EmailJobName.ROLE_CHANGED)
+  async handleRoleChanged(job: Job<RoleChangedPayload>) {
+    const p = job.data;
+    if (!p.userEmail) return;
+    const { subject, html } = this.templates.roleChanged(p);
+    await this.emailService.send({
+      to: p.userEmail, subject, html,
+      jobName: EmailJobName.ROLE_CHANGED,
+      idempotencyKey: `${EmailJobName.ROLE_CHANGED}:${p.userId}:${p.newRole}`,
+      metadata: { userId: p.userId, newRole: p.newRole },
+    });
+  }
+
+  // ── Queue lifecycle hooks ──────────────────────────────────────────────────
+  @OnQueueFailed()
+  onFailed(job: Job, error: Error) {
+    this.logger.error(
+      `Email job "${job.name}" #${job.id} failed (attempt ${job.attemptsMade}): ${error.message}`,
+    );
+  }
+
+  @OnQueueCompleted()
+  onCompleted(job: Job) {
+    this.logger.debug(`Email job "${job.name}" #${job.id} completed`);
+  }
+
+  // ── Utilities ─────────────────────────────────────────────────────────────
+  private isoWeek(date: Date): string {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
   }
 }

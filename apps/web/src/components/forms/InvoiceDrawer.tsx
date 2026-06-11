@@ -3,9 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   X, FileText, CheckCircle2, Clock, RotateCcw,
-  ChevronDown, AlertTriangle, DollarSign, Calendar, User,
+  ChevronDown, AlertTriangle, DollarSign, Calendar, User, Pencil,
 } from 'lucide-react';
-import { useInvoice, useMarkPaid, useRevertPayment } from '@/lib/hooks/useApi';
+import { useInvoice, useMarkPaid, useRevertPayment, useUpdateInvoice } from '@/lib/hooks/useApi';
 import { Badge, AmberButton, GhostButton, SkeletonCard } from '@/components/ui';
 import {
   fmtCurrency, fmtDate, fmtDateTime, fmtRelative,
@@ -150,10 +150,13 @@ interface Props {
   onClose:   () => void;
 }
 
+const CURRENCIES = ['NGN', 'USD', 'GBP', 'EUR'];
+
 export function InvoiceDrawer({ invoiceId, onClose }: Props) {
   const { data: invoice, isLoading } = useInvoice(invoiceId ?? '');
   const markPaid      = useMarkPaid();
   const revertPayment = useRevertPayment();
+  const updateInvoice = useUpdateInvoice();
 
   // ── Local UI state ────────────────────────────────────────────────────
   const [paymentInput, setPaymentInput]   = useState('');
@@ -163,6 +166,16 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
   const [revertTarget, setRevertTarget]   = useState<PaymentRecord | null>(null);
   const amountRef = useRef<HTMLInputElement>(null);
 
+  // ── Edit mode state ───────────────────────────────────────────────────
+  const [isEditing,     setIsEditing]     = useState(false);
+  const [editNumber,    setEditNumber]    = useState('');
+  const [editAmount,    setEditAmount]    = useState('');
+  const [editInvDate,   setEditInvDate]   = useState('');
+  const [editDueDate,   setEditDueDate]   = useState('');
+  const [editCurrency,  setEditCurrency]  = useState('NGN');
+  const [editNotes,     setEditNotes]     = useState('');
+  const [editErrors,    setEditErrors]    = useState<Record<string, string>>({});
+
   // Reset form whenever the drawer opens for a new invoice
   useEffect(() => {
     setPaymentInput('');
@@ -170,7 +183,65 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
     setPaymentNotes('');
     setInputError('');
     setRevertTarget(null);
+    setIsEditing(false);
   }, [invoiceId]);
+
+  // Populate edit form fields when invoice data loads
+  useEffect(() => {
+    if (invoice) {
+      setEditNumber(invoice.invoiceNumber ?? '');
+      setEditAmount(String(Number(invoice.invoiceAmount ?? 0)));
+      setEditInvDate(invoice.invoiceDate ? invoice.invoiceDate.split('T')[0] : '');
+      setEditDueDate(invoice.dueDate ? invoice.dueDate.split('T')[0] : '');
+      setEditCurrency(invoice.currency ?? 'NGN');
+      setEditNotes(invoice.notes ?? '');
+    }
+  }, [invoice?.id]);
+
+  function openEdit() {
+    // Re-sync fields to latest data before opening
+    if (invoice) {
+      setEditNumber(invoice.invoiceNumber ?? '');
+      setEditAmount(String(Number(invoice.invoiceAmount ?? 0)));
+      setEditInvDate(invoice.invoiceDate ? invoice.invoiceDate.split('T')[0] : '');
+      setEditDueDate(invoice.dueDate ? invoice.dueDate.split('T')[0] : '');
+      setEditCurrency(invoice.currency ?? 'NGN');
+      setEditNotes(invoice.notes ?? '');
+      setEditErrors({});
+    }
+    setIsEditing(true);
+  }
+
+  function validateEdit(): boolean {
+    const e: Record<string, string> = {};
+    if (!editNumber.trim()) e.invoiceNumber = 'Required';
+    if (!editDueDate)       e.dueDate       = 'Required';
+    if (invoice?.status === 'PENDING') {
+      if (!editAmount || isNaN(Number(editAmount)) || Number(editAmount) <= 0)
+        e.invoiceAmount = 'Enter a valid amount';
+      if (editDueDate && editInvDate && editDueDate < editInvDate)
+        e.dueDate = 'Cannot be before invoice date';
+    }
+    setEditErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  async function handleSaveEdit() {
+    if (!validateEdit() || !invoice) return;
+    const isPending = invoice.status === 'PENDING';
+    const payload: Record<string, any> = {
+      invoiceNumber: editNumber,
+      dueDate:       editDueDate,
+      currency:      editCurrency,
+      notes:         editNotes || undefined,
+    };
+    if (isPending) {
+      payload.invoiceAmount = parseFloat(editAmount);
+      payload.invoiceDate   = editInvDate;
+    }
+    await updateInvoice.mutateAsync({ id: invoice.id, data: payload });
+    setIsEditing(false);
+  }
 
   if (!invoiceId) return null;
 
@@ -250,21 +321,35 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
           <div className="flex items-center gap-2">
             <FileText size={15} style={{ color: 'var(--amber)' }} />
             <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-              {invoice?.invoiceNumber ?? 'Invoice Detail'}
+              {isEditing ? 'Edit Invoice' : (invoice?.invoiceNumber ?? 'Invoice Detail')}
             </span>
-            {invoice && (
+            {invoice && !isEditing && (
               <Badge className={getStatusClass(invoice.status)}>
                 {getStatusLabel(invoice.status)}
               </Badge>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-70 transition-all"
-            style={{ background: 'var(--bg-3)' }}
-          >
-            <X size={14} style={{ color: 'var(--text-2)' }} />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Edit toggle — hidden for PAID / CANCELLED */}
+            {invoice && !isEditing &&
+              invoice.status !== 'PAID' && invoice.status !== 'CANCELLED' && (
+              <button
+                onClick={openEdit}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-80"
+                style={{ background: 'rgba(245,158,11,0.1)', color: 'var(--amber)', border: '1px solid rgba(245,158,11,0.2)' }}
+              >
+                <Pencil size={11} />
+                Edit
+              </button>
+            )}
+            <button
+              onClick={isEditing ? () => setIsEditing(false) : onClose}
+              className="w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-70 transition-all"
+              style={{ background: 'var(--bg-3)' }}
+            >
+              <X size={14} style={{ color: 'var(--text-2)' }} />
+            </button>
+          </div>
         </div>
 
         {/* ── Body ───────────────────────────────────────────────────── */}
@@ -351,34 +436,125 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
               </div>
             </div>
 
-            {/* ── Invoice Details ───────────────────────────────────── */}
-            <div>
-              <p className="text-[11px] font-semibold mb-2 uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
-                Invoice Details
-              </p>
-              <div style={{ background: 'var(--bg-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                {[
-                  { icon: <User size={11} />,      label: 'Client',      value: invoice.client?.name ?? '—' },
-                  { icon: <Calendar size={11} />,  label: 'Issued',      value: fmtDate(invoice.invoiceDate) },
-                  { icon: <Calendar size={11} />,  label: 'Due',         value: fmtDate(invoice.dueDate) },
-                  ...(invoice.paidDate
-                    ? [{ icon: <CheckCircle2 size={11} />, label: 'Paid on', value: fmtDate(invoice.paidDate) }]
-                    : []),
-                  { icon: <DollarSign size={11} />, label: 'Currency',   value: invoice.currency },
-                ].map((row, i, arr) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between px-3 py-2 text-xs"
-                    style={{ borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none' }}
-                  >
-                    <span className="flex items-center gap-1.5" style={{ color: 'var(--text-3)' }}>
-                      {row.icon}{row.label}
-                    </span>
-                    <span className="font-medium" style={{ color: 'var(--text)' }}>{row.value}</span>
+            {/* ── Edit Form (toggle) ────────────────────────────────── */}
+            {isEditing ? (
+              <div className="space-y-4 p-4 rounded-xl" style={{ background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+                <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+                  Edit Invoice
+                </p>
+
+                {/* Invoice number */}
+                <div>
+                  <label className="form-label">Invoice Number</label>
+                  <input
+                    className="form-input mono"
+                    value={editNumber}
+                    onChange={e => setEditNumber(e.target.value)}
+                  />
+                  {editErrors.invoiceNumber && <p className="form-error">{editErrors.invoiceNumber}</p>}
+                </div>
+
+                {/* Amount — PENDING only */}
+                {invoice.status === 'PENDING' && (
+                  <div>
+                    <label className="form-label">Amount (₦)</label>
+                    <input
+                      className="form-input mono"
+                      type="number" min="0" step="0.01"
+                      value={editAmount}
+                      onChange={e => setEditAmount(e.target.value)}
+                    />
+                    {editErrors.invoiceAmount && <p className="form-error">{editErrors.invoiceAmount}</p>}
                   </div>
-                ))}
+                )}
+
+                {/* Currency */}
+                <div>
+                  <label className="form-label">Currency</label>
+                  <select className="form-input" value={editCurrency} onChange={e => setEditCurrency(e.target.value)}>
+                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+
+                {/* Dates */}
+                <div className="grid grid-cols-2 gap-3">
+                  {invoice.status === 'PENDING' && (
+                    <div>
+                      <label className="form-label">Invoice Date</label>
+                      <input
+                        className="form-input"
+                        type="date"
+                        value={editInvDate}
+                        onChange={e => setEditInvDate(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  <div className={invoice.status === 'PENDING' ? '' : 'col-span-2'}>
+                    <label className="form-label">Due Date</label>
+                    <input
+                      className="form-input"
+                      type="date"
+                      value={editDueDate}
+                      onChange={e => setEditDueDate(e.target.value)}
+                    />
+                    {editErrors.dueDate && <p className="form-error">{editErrors.dueDate}</p>}
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="form-label">Notes <span style={{ color: 'var(--text-3)' }}>(optional)</span></label>
+                  <textarea
+                    className="form-input resize-none text-xs"
+                    rows={3}
+                    value={editNotes}
+                    onChange={e => setEditNotes(e.target.value)}
+                    placeholder="PO reference, project code, context…"
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <AmberButton
+                    onClick={handleSaveEdit}
+                    disabled={updateInvoice.isPending}
+                    className="flex-1 justify-center"
+                  >
+                    {updateInvoice.isPending ? 'Saving…' : 'Save Changes'}
+                  </AmberButton>
+                  <GhostButton onClick={() => setIsEditing(false)}>Cancel</GhostButton>
+                </div>
               </div>
-            </div>
+            ) : (
+              /* ── Invoice Details (read mode) ─────────────────────── */
+              <div>
+                <p className="text-[11px] font-semibold mb-2 uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+                  Invoice Details
+                </p>
+                <div style={{ background: 'var(--bg-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  {[
+                    { icon: <User size={11} />,      label: 'Client',      value: invoice.client?.name ?? '—' },
+                    { icon: <Calendar size={11} />,  label: 'Issued',      value: fmtDate(invoice.invoiceDate) },
+                    { icon: <Calendar size={11} />,  label: 'Due',         value: fmtDate(invoice.dueDate) },
+                    ...(invoice.paidDate
+                      ? [{ icon: <CheckCircle2 size={11} />, label: 'Paid on', value: fmtDate(invoice.paidDate) }]
+                      : []),
+                    { icon: <DollarSign size={11} />, label: 'Currency',   value: invoice.currency },
+                  ].map((row, i, arr) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between px-3 py-2 text-xs"
+                      style={{ borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none' }}
+                    >
+                      <span className="flex items-center gap-1.5" style={{ color: 'var(--text-3)' }}>
+                        {row.icon}{row.label}
+                      </span>
+                      <span className="font-medium" style={{ color: 'var(--text)' }}>{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ── Record Payment ────────────────────────────────────── */}
             {!isSettled && remaining > 0.005 && (

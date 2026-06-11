@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Organization {
@@ -252,4 +253,35 @@ enum AlertType {
   CREDIT_LIMIT_BREACH
 }
 
- 
+enum EmailProvider {
+  POSTMARK
+  RESEND
+}
+
+enum EmailDeliveryStatus {
+  SENT
+  FAILED
+  FALLBACK_SENT
+  FALLBACK_FAILED
+}
+
+model EmailLog {
+  id                String              @id @default(cuid())
+  jobName           String              @map("job_name")
+  recipient         String
+  subject           String
+  provider          EmailProvider
+  status            EmailDeliveryStatus
+  providerMessageId String?             @map("provider_message_id")
+  errorMessage      String?             @map("error_message")
+  idempotencyKey    String?             @unique @map("idempotency_key")
+  usedFallback      Boolean             @default(false) @map("used_fallback")
+  metadata          Json?
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  @@index([recipient])
+  @@index([jobName])
+  @@index([status])
+  @@index([createdAt])
+  @@map("email_logs")
+}

@@ -7,11 +7,13 @@ import { AlertsProcessor } from './alerts.processor';
 import { EmailsProcessor } from './emails.processor';
 import { InvoicesModule } from '../invoices/invoices.module';
 import { ClientsModule } from '../clients/clients.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     InvoicesModule,
     ClientsModule,
+    EmailModule,
     BullModule.registerQueue({ name: 'alerts' }),
     BullModule.registerQueue({
       name: 'emails',

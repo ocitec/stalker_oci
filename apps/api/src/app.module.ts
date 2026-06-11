@@ -24,7 +24,8 @@ import {
   redisConfig,
   jwtConfig,
   mailConfig,
-  configValidationSchema,          // ← new: Joi startup validation
+  emailConfig,
+  configValidationSchema,
 } from './config/configuration';
 
 @Module({
@@ -32,7 +33,7 @@ import {
     // ── Configuration ─────────────────────────────────────────────────────────
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, redisConfig, jwtConfig, mailConfig],
+      load: [appConfig, databaseConfig, redisConfig, jwtConfig, mailConfig, emailConfig],
       envFilePath: ['.env.local', '.env'],
       validationSchema: configValidationSchema,   // ← validates env on boot
       validationOptions: {
