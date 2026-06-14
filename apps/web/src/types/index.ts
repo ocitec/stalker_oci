@@ -127,6 +127,7 @@ export interface Client {
   notes?:                 string | null;
   outstandingAmount?:     number | null;
   utilizationPercent?:    number | null;
+  riskExplanation?:       RiskExplanation | null;
   createdAt:              string;
   updatedAt:              string;
 }
@@ -170,6 +171,24 @@ export interface Alert {
   sentAt:    string;
   readAt?:   string | null;
   invoice?:  Pick<Invoice, 'id' | 'invoiceNumber' | 'client'> | null;
+}
+
+// ── Action Recommendation ──────────────────────────────────────────────────
+export type ActionSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface ActionRecommendation {
+  action: string;
+  severity: ActionSeverity;
+  reasons: string[];
+}
+
+// ── Risk Explanation ───────────────────────────────────────────────────────
+export interface RiskExplanation {
+  avgDelayDays:      number;
+  slaBreachCount:    number;
+  unresolvedSlaCount: number;
+  riskTrend:         'IMPROVING' | 'STABLE' | 'DETERIORATING';
+  recommendedAction?: ActionRecommendation;
 }
 
 // ── User ───────────────────────────────────────────────────────────────────

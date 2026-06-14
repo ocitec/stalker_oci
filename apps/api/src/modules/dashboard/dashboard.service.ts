@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { subDays, differenceInDays } from 'date-fns';
+import { subDays, differenceInDays, startOfDay, endOfDay } from 'date-fns';
 import { PrismaService } from '../../config/prisma.service';
 import { SlaService } from '../sla/sla.service';
+import { computeRecommendedAction } from '../../common/utils/action-recommendation.util';
 
 @Injectable()
 export class DashboardService {
@@ -93,7 +94,6 @@ export class DashboardService {
   private async getActionCentre(organizationId: string) {
     const today = new Date();
 
-    // Top clients to chase: those with OVERDUE or PARTIALLY_PAID invoices
     const clientsWithOverdue = await this.prisma.client.findMany({
       where: {
         organizationId,
@@ -102,6 +102,11 @@ export class DashboardService {
       select: {
         id: true, name: true, sector: true,
         paymentDisciplineIndex: true, riskStatus: true, isBlocked: true,
+        creditLimit: true,
+        slaViolations: {
+          where: { resolved: false },
+          select: { id: true },
+        },
         invoices: {
           where: { status: { in: ['OVERDUE', 'PARTIALLY_PAID'] } },
           select: {
@@ -132,7 +137,22 @@ export class DashboardService {
           ? differenceInDays(today, new Date(lastFollowUp.followUpDate))
           : null;
         const pdi = Number(c.paymentDisciplineIndex);
+        const creditLimit = Number(c.creditLimit ?? 0);
+        const utilizationPercent = creditLimit > 0
+          ? Math.round((overdueAmount / creditLimit) * 100)
+          : 0;
+        const slaBreachCount = c.slaViolations.length;
         const priorityScore = overdueAmount * (1 + maxDaysOverdue / 30) / (pdi + 1);
+
+        const recommendedAction = computeRecommendedAction({
+          maxDaysOverdue,
+          pdi,
+          riskStatus: c.riskStatus,
+          outstandingAmount: overdueAmount,
+          utilizationPercent,
+          slaBreachCount,
+        });
+
         return {
           id: c.id,
           name: c.name,
@@ -144,13 +164,15 @@ export class DashboardService {
           overdueInvoiceCount: c.invoices.length,
           maxDaysOverdue,
           daysSinceFollowUp,
+          slaBreachCount,
+          utilizationPercent,
           priorityScore,
+          recommendedAction,
         };
       })
       .sort((a, b) => b.priorityScore - a.priorityScore)
       .slice(0, 5);
 
-    // Top 10 overdue invoices by remaining balance
     const overdueInvoices = await this.prisma.invoice.findMany({
       where: {
         client: { organizationId },
@@ -252,7 +274,6 @@ export class DashboardService {
   private async getCollectionsPerformance(organizationId: string) {
     const today = new Date();
 
-    // Weekly trend — last 4 weeks using PaymentRecord for accuracy (captures partial payments)
     const weeklyTrend: { week: string; collected: number }[] = [];
     for (let i = 3; i >= 0; i--) {
       const from = subDays(today, (i + 1) * 7);
@@ -271,6 +292,7 @@ export class DashboardService {
     }
 
     const collectedThisWeek = weeklyTrend[weeklyTrend.length - 1].collected;
+    const lastWeekCollected = weeklyTrend[weeklyTrend.length - 2]?.collected ?? 0;
 
     const totalOverdueResult = await this.prisma.invoice.aggregate({
       where: {
@@ -285,35 +307,82 @@ export class DashboardService {
       ? Math.round((collectedThisWeek / (collectedThisWeek + totalOverdue)) * 100)
       : 0;
 
+    // Weekly target: 15% of total overdue, or 10% above last week — whichever is greater
+    const weeklyTarget = Math.max(
+      Math.round(totalOverdue * 0.15),
+      Math.round(lastWeekCollected * 1.1),
+    );
+    const monthlyTarget = Math.round(weeklyTarget * 4.3);
+    const recoveryGap = Math.max(0, weeklyTarget - collectedThisWeek);
+    const expectedRecoverable = Math.round(totalOverdue * 0.75);
+
     return {
       collectedThisWeek,
       totalOverdue,
       recoveryRate,
       weeklyTrend,
+      weeklyTarget,
+      monthlyTarget,
+      recoveryGap,
+      expectedRecoverable,
     };
   }
 
   private async getFollowUpMetrics(organizationId: string) {
-    const fiveDaysAgo = subDays(new Date(), 5);
-    const [overdueTotal, withRecentFollowUp] = await Promise.all([
-      this.prisma.invoice.count({
-        where: { client: { organizationId }, status: { in: ['OVERDUE', 'PARTIALLY_PAID'] } },
-      }),
-      this.prisma.invoice.count({
-        where: {
-          client: { organizationId },
-          status: { in: ['OVERDUE', 'PARTIALLY_PAID'] },
-          followUps: { some: { followUpDate: { gte: fiveDaysAgo } } },
-        },
-      }),
-    ]);
+    const today = new Date();
+    const fiveDaysAgo = subDays(today, 5);
+    const todayStart = startOfDay(today);
+    const todayEnd = endOfDay(today);
+
+    const [overdueTotal, withRecentFollowUp, completedToday, escalationsPending, followUpsDueToday] =
+      await Promise.all([
+        this.prisma.invoice.count({
+          where: { client: { organizationId }, status: { in: ['OVERDUE', 'PARTIALLY_PAID'] } },
+        }),
+        this.prisma.invoice.count({
+          where: {
+            client: { organizationId },
+            status: { in: ['OVERDUE', 'PARTIALLY_PAID'] },
+            followUps: { some: { followUpDate: { gte: fiveDaysAgo } } },
+          },
+        }),
+        this.prisma.followUp.count({
+          where: {
+            invoice: { client: { organizationId } },
+            followUpDate: { gte: todayStart, lte: todayEnd },
+          },
+        }),
+        this.prisma.alert.count({
+          where: {
+            invoice: { client: { organizationId } },
+            alertType: { in: ['PDI_THRESHOLD', 'CREDIT_LIMIT_BREACH'] },
+            isRead: false,
+          },
+        }),
+        this.prisma.followUp.count({
+          where: {
+            invoice: {
+              client: { organizationId },
+              status: { in: ['OVERDUE', 'PARTIALLY_PAID'] },
+            },
+            nextFollowUpDate: { gte: todayStart, lte: todayEnd },
+          },
+        }),
+      ]);
+
+    const staleCount = overdueTotal - withRecentFollowUp;
+
     return {
       overdueTotal,
       withRecentFollowUp,
-      staleCount: overdueTotal - withRecentFollowUp,
+      staleCount,
       complianceRate: overdueTotal > 0
         ? Math.round((withRecentFollowUp / overdueTotal) * 100)
         : 100,
+      followUpsDueToday,
+      overdueFollowUps: staleCount,
+      completedToday,
+      escalationsPending,
     };
   }
 }

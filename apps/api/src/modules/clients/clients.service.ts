@@ -10,6 +10,7 @@ import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { ClientQueryDto } from './dto/client-query.dto';
 import { EmailJobName } from '../email/email.types';
+import { computeRecommendedAction } from '../../common/utils/action-recommendation.util';
 
 @Injectable()
 export class ClientsService {
@@ -108,7 +109,65 @@ export class ClientsService {
     });
 
     if (!client) throw new NotFoundException('Client not found');
-    return this.enrichClient(client);
+
+    const enriched = this.enrichClient(client);
+
+    // Risk explanation: derived from sla violations and recent payment pattern
+    const slaViolations: any[] = (client as any).slaViolations ?? [];
+    const avgDelayDays = slaViolations.length > 0
+      ? Math.round(slaViolations.reduce((s: number, v: any) => s + (v.daysLate ?? 0), 0) / slaViolations.length)
+      : 0;
+    const unresolvedSlaCount = slaViolations.filter((v: any) => !v.resolved).length;
+
+    const recentInvoices = await this.prisma.invoice.findMany({
+      where: { clientId: id, status: { in: ['PAID', 'OVERDUE'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { status: true, dueDate: true, paidDate: true },
+    });
+
+    const overallPdi = Number(client.paymentDisciplineIndex);
+    let riskTrend: 'IMPROVING' | 'STABLE' | 'DETERIORATING' = 'STABLE';
+    if (recentInvoices.length >= 3) {
+      const recentOnTime = recentInvoices.filter(
+        inv => inv.status === 'PAID' && inv.paidDate && inv.paidDate <= inv.dueDate,
+      ).length;
+      const recentPdi = Math.round((recentOnTime / recentInvoices.length) * 100);
+      if (recentPdi > overallPdi + 8) riskTrend = 'IMPROVING';
+      else if (recentPdi < overallPdi - 8) riskTrend = 'DETERIORATING';
+    }
+
+    const outstandingAmount = enriched.outstandingAmount ?? 0;
+    const utilizationPercent = enriched.utilizationPercent ?? 0;
+
+    const overdueInvoices = (client as any).invoices?.filter(
+      (inv: any) => ['OVERDUE', 'PARTIALLY_PAID'].includes(inv.status),
+    ) ?? [];
+    const today = new Date();
+    const maxDaysOverdue = overdueInvoices.reduce((max: number, inv: any) => {
+      const days = Math.max(0, Math.floor((today.getTime() - new Date(inv.dueDate).getTime()) / 86400000));
+      return days > max ? days : max;
+    }, 0);
+
+    const recommendedAction = computeRecommendedAction({
+      maxDaysOverdue,
+      pdi: overallPdi,
+      riskStatus: client.riskStatus,
+      outstandingAmount,
+      utilizationPercent,
+      slaBreachCount: unresolvedSlaCount,
+    });
+
+    return {
+      ...enriched,
+      riskExplanation: {
+        avgDelayDays,
+        slaBreachCount: slaViolations.length,
+        unresolvedSlaCount,
+        riskTrend,
+        recommendedAction,
+      },
+    };
   }
 
   async update(id: string, dto: UpdateClientDto, organizationId: string) {

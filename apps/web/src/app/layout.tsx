@@ -12,7 +12,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Stalker v1 — Cash Control System',
+  title: 'Stalker v1 — Receivables Control System',
   description: 'Cashflow intelligence platform. Reduce DSO, enforce payment discipline.',
   icons: { icon: '/favicon.ico' },
 };

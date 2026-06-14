@@ -58,7 +58,7 @@ export default function LoginPage() {
           </div>
           <div>
             <p className="font-black text-lg tracking-tight" style={{ color: 'var(--text)' }}>STALKER</p>
-            <p className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>Cash Control System</p>
+            <p className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>Receivables Control System</p>
           </div>
         </div>
 
@@ -163,7 +163,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-[11px] mt-6" style={{ color: 'var(--text-3)' }}>
-          Stalker v1 — Cash Control System · Enterprise Edition
+          Stalker v1 — Receivables Control System · Enterprise Edition
         </p>
       </div>
     </div>

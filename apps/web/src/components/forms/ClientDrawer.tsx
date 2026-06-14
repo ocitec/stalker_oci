@@ -1,15 +1,46 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Building2, Shield, ShieldOff, ShieldCheck, FileText, AlertTriangle } from 'lucide-react';
+import {
+  X, Building2, Shield, ShieldOff, ShieldCheck, FileText,
+  AlertTriangle, TrendingUp, TrendingDown, Minus,
+} from 'lucide-react';
 import { useClient, useInvoices, useBlockClient, useUnblockClient } from '@/lib/hooks/useApi';
 import { Badge, AmberButton, GhostButton, PdiBar, SkeletonCard } from '@/components/ui';
 import { fmtCurrency, fmtDate, getStatusClass, getStatusLabel, getPdiColor, getPdiLabel, getRiskBadgeClass } from '@/lib/utils';
+import { ActionSeverity } from '@/types';
 
 interface Props {
   clientId: string | null;
   onClose: () => void;
   onViewInvoice?: (id: string) => void;
+}
+
+function getActionColor(severity: ActionSeverity): string {
+  switch (severity) {
+    case 'CRITICAL': return '#F43F5E';
+    case 'HIGH':     return '#F97316';
+    case 'MEDIUM':   return '#F59E0B';
+    default:         return '#3B82F6';
+  }
+}
+
+function getActionBg(severity: ActionSeverity): string {
+  switch (severity) {
+    case 'CRITICAL': return 'rgba(244,63,94,0.08)';
+    case 'HIGH':     return 'rgba(249,115,22,0.08)';
+    case 'MEDIUM':   return 'rgba(245,158,11,0.08)';
+    default:         return 'rgba(59,130,246,0.08)';
+  }
+}
+
+function getActionBorder(severity: ActionSeverity): string {
+  switch (severity) {
+    case 'CRITICAL': return 'rgba(244,63,94,0.25)';
+    case 'HIGH':     return 'rgba(249,115,22,0.25)';
+    case 'MEDIUM':   return 'rgba(245,158,11,0.25)';
+    default:         return 'rgba(59,130,246,0.25)';
+  }
 }
 
 export function ClientDrawer({ clientId, onClose, onViewInvoice }: Props) {
@@ -25,6 +56,9 @@ export function ClientDrawer({ clientId, onClose, onViewInvoice }: Props) {
   const pdi      = Math.round(Number(client?.paymentDisciplineIndex ?? 0));
   const utilPct  = client?.utilizationPercent ?? 0;
   const utilColor = utilPct > 80 ? '#F43F5E' : utilPct > 50 ? '#F59E0B' : '#10B981';
+
+  const rec   = client?.riskExplanation?.recommendedAction;
+  const rxp   = client?.riskExplanation;
 
   if (!clientId) return null;
 
@@ -91,6 +125,45 @@ export function ClientDrawer({ clientId, onClose, onViewInvoice }: Props) {
               </div>
             )}
 
+            {/* ── Recommended Action panel ─────────────────────────────── */}
+            {rec && (
+              <div>
+                <p className="text-[11px] font-semibold mb-2 uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+                  Recommended Action
+                </p>
+                <div
+                  className="p-3.5 rounded-lg"
+                  style={{ background: getActionBg(rec.severity), border: `1px solid ${getActionBorder(rec.severity)}` }}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle size={13} style={{ color: getActionColor(rec.severity), flexShrink: 0 }} />
+                    <p className="text-sm font-bold" style={{ color: getActionColor(rec.severity) }}>
+                      {rec.action}
+                    </p>
+                    <Badge
+                      style={{
+                        marginLeft: 'auto',
+                        background: getActionBg(rec.severity),
+                        color: getActionColor(rec.severity),
+                        borderColor: getActionBorder(rec.severity),
+                        fontSize: 9,
+                      }}
+                    >
+                      {rec.severity}
+                    </Badge>
+                  </div>
+                  <div className="space-y-1">
+                    {rec.reasons.map((r: string, i: number) => (
+                      <p key={i} className="text-[11px] flex items-start gap-1.5" style={{ color: 'var(--text-2)' }}>
+                        <span style={{ color: getActionColor(rec.severity), flexShrink: 0 }}>•</span>
+                        {r}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Profile */}
             <div>
               <p className="text-[11px] font-semibold mb-2 uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>Profile</p>
@@ -153,6 +226,61 @@ export function ClientDrawer({ clientId, onClose, onViewInvoice }: Props) {
                 </div>
               </div>
             </div>
+
+            {/* ── Why This Risk? ───────────────────────────────────────── */}
+            {rxp && (
+              <div>
+                <p className="text-[11px] font-semibold mb-2 uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+                  Why This Risk?
+                </p>
+                <div style={{ background: 'var(--bg-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  {[
+                    {
+                      label: 'PDI Score',
+                      value: String(pdi),
+                      color: getPdiColor(pdi),
+                    },
+                    {
+                      label: 'Average Delay Days',
+                      value: rxp.avgDelayDays > 0 ? `${rxp.avgDelayDays}d` : 'None',
+                      color: rxp.avgDelayDays > 30 ? '#F43F5E' : rxp.avgDelayDays > 10 ? '#F59E0B' : 'var(--green)',
+                    },
+                    {
+                      label: 'SLA Breaches (Total)',
+                      value: String(rxp.slaBreachCount),
+                      color: rxp.slaBreachCount > 3 ? '#F43F5E' : rxp.slaBreachCount > 1 ? '#F59E0B' : 'var(--text)',
+                    },
+                    {
+                      label: 'SLA Breaches (Active)',
+                      value: String(rxp.unresolvedSlaCount),
+                      color: rxp.unresolvedSlaCount > 0 ? '#F43F5E' : 'var(--green)',
+                    },
+                    {
+                      label: 'Risk Trend',
+                      value: rxp.riskTrend,
+                      color: rxp.riskTrend === 'IMPROVING' ? 'var(--green)' : rxp.riskTrend === 'DETERIORATING' ? '#F43F5E' : 'var(--text-2)',
+                      icon: rxp.riskTrend === 'IMPROVING'
+                        ? <TrendingUp size={11} style={{ color: 'var(--green)' }} />
+                        : rxp.riskTrend === 'DETERIORATING'
+                        ? <TrendingDown size={11} style={{ color: '#F43F5E' }} />
+                        : <Minus size={11} style={{ color: 'var(--text-3)' }} />,
+                    },
+                  ].map((row, i, arr) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between px-4 py-2.5 text-xs"
+                      style={{ borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none' }}
+                    >
+                      <span style={{ color: 'var(--text-3)' }}>{row.label}</span>
+                      <span className="mono font-bold flex items-center gap-1.5" style={{ color: row.color }}>
+                        {(row as any).icon}
+                        {row.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Invoices */}
             <div>
