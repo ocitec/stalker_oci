@@ -277,7 +277,7 @@ export class DashboardService {
     const weeklyTrend: { week: string; collected: number }[] = [];
     for (let i = 3; i >= 0; i--) {
       const from = subDays(today, (i + 1) * 7);
-      const to = subDays(today, i * 7);
+      const to   = subDays(today, i * 7);
       const label = i === 0 ? 'This wk' : `${i}w ago`;
 
       const result = await this.prisma.paymentRecord.aggregate({
@@ -292,7 +292,17 @@ export class DashboardService {
     }
 
     const collectedThisWeek = weeklyTrend[weeklyTrend.length - 1].collected;
-    const lastWeekCollected = weeklyTrend[weeklyTrend.length - 2]?.collected ?? 0;
+
+    // 30-day total for a meaningful monthly picture
+    const monthlyResult = await this.prisma.paymentRecord.aggregate({
+      where: {
+        invoice: { client: { organizationId } },
+        isReverted: false,
+        paymentDate: { gte: subDays(today, 30) },
+      },
+      _sum: { amount: true },
+    });
+    const collectedThisMonth = Number(monthlyResult._sum.amount ?? 0);
 
     const totalOverdueResult = await this.prisma.invoice.aggregate({
       where: {
@@ -303,28 +313,31 @@ export class DashboardService {
     });
     const totalOverdue = Number(totalOverdueResult._sum.remainingBalance ?? 0);
 
-    const recoveryRate = (collectedThisWeek + totalOverdue) > 0
-      ? Math.round((collectedThisWeek / (collectedThisWeek + totalOverdue)) * 100)
+    // Weekly target = 10 % of overdue portfolio (aspirational but grounded in the actual debt)
+    const weeklyTarget       = Math.round(totalOverdue * 0.10);
+    const monthlyTarget      = Math.round(totalOverdue * 0.40);
+    // Target achievement this week (capped at 150 % to handle over-performance)
+    const targetAchievement  = weeklyTarget > 0
+      ? Math.min(150, Math.round((collectedThisWeek / weeklyTarget) * 100))
       : 0;
-
-    // Weekly target: 15% of total overdue, or 10% above last week — whichever is greater
-    const weeklyTarget = Math.max(
-      Math.round(totalOverdue * 0.15),
-      Math.round(lastWeekCollected * 1.1),
-    );
-    const monthlyTarget = Math.round(weeklyTarget * 4.3);
-    const recoveryGap = Math.max(0, weeklyTarget - collectedThisWeek);
+    const recoveryGap         = Math.max(0, weeklyTarget - collectedThisWeek);
     const expectedRecoverable = Math.round(totalOverdue * 0.75);
+    // Portfolio recovery rate: 30-day collections vs what remains outstanding
+    const portfolioRecoveryRate = (collectedThisMonth + totalOverdue) > 0
+      ? Math.round((collectedThisMonth / (collectedThisMonth + totalOverdue)) * 100)
+      : 0;
 
     return {
       collectedThisWeek,
+      collectedThisMonth,
       totalOverdue,
-      recoveryRate,
-      weeklyTrend,
       weeklyTarget,
       monthlyTarget,
+      targetAchievement,
       recoveryGap,
       expectedRecoverable,
+      portfolioRecoveryRate,
+      weeklyTrend,
     };
   }
 

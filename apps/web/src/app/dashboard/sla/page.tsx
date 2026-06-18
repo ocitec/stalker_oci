@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { AlertTriangle, Download } from 'lucide-react';
 import { useSlaViolations, useTopViolators } from '@/lib/hooks/useApi';
@@ -26,8 +27,11 @@ function exportCsv(violations: SlaViolation[]) {
   URL.revokeObjectURL(url);
 }
 
+const PAGE_SIZE = 20;
+
 export default function SlaPage() {
-  const { data: violationsData, isLoading } = useSlaViolations({ limit: 50 });
+  const [page, setPage] = useState(1);
+  const { data: violationsData, isLoading } = useSlaViolations({ page, limit: PAGE_SIZE });
   const { data: topViolators }              = useTopViolators();
 
   const violations     = violationsData?.data ?? [];
@@ -163,6 +167,29 @@ export default function SlaPage() {
               })}
             </tbody>
           </table>
+        )}
+
+        {/* Pagination */}
+        {violationsData?.meta && violationsData.meta.totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t text-xs" style={{ borderColor: 'var(--border)' }}>
+            <span style={{ color: 'var(--text-3)' }}>
+              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, violationsData.meta.total)} of {violationsData.meta.total} violations
+            </span>
+            <div className="flex items-center gap-1">
+              <GhostButton onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>← Prev</GhostButton>
+              {Array.from({ length: Math.min(5, violationsData.meta.totalPages) }, (_, i) => {
+                const pg = Math.max(1, Math.min(violationsData.meta.totalPages - 4, page - 2)) + i;
+                return pg <= violationsData.meta.totalPages ? (
+                  <button key={pg} onClick={() => setPage(pg)}
+                    className="w-7 h-7 rounded text-[11px] font-medium transition-all"
+                    style={{ background: pg === page ? 'var(--amber)' : 'transparent', color: pg === page ? '#000' : 'var(--text-3)' }}>
+                    {pg}
+                  </button>
+                ) : null;
+              })}
+              <GhostButton onClick={() => setPage(p => Math.min(violationsData.meta.totalPages, p + 1))} disabled={page === violationsData.meta.totalPages}>Next →</GhostButton>
+            </div>
+          </div>
         )}
       </div>
     </div>

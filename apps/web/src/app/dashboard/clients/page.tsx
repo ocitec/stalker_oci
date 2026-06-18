@@ -31,6 +31,7 @@ export default function ClientsPage() {
   const [search,    setSearch]    = useState('');
   const [risk,      setRisk]      = useState('');
   const [isBlocked, setBlocked]   = useState<boolean | undefined>(undefined);
+  const [page,      setPage]      = useState(1);
   const [addOpen,   setAddOpen]   = useState(false);
   const [editClient, setEditClient] = useState<Client | null>(null);
   const [clientId,  setClientId]  = useState<string | null>(null);
@@ -39,14 +40,17 @@ export default function ClientsPage() {
   const blockClient   = useBlockClient();
   const unblockClient = useUnblockClient();
 
+  const PAGE_SIZE = 20;
   const { data, isLoading } = useClients({
     search: search || undefined,
     riskStatus: risk || undefined,
     isBlocked,
-    page: 1, limit: 50,
+    page,
+    limit: PAGE_SIZE,
   });
 
   const clients: Client[] = (data as any)?.data ?? (Array.isArray(data) ? data : []);
+  const meta = (data as any)?.meta;
 
   return (
     <>
@@ -61,16 +65,16 @@ export default function ClientsPage() {
             style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
             placeholder="Search client…"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
         <select className="px-3 py-2 rounded-lg text-xs outline-none" style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
-          value={risk} onChange={e => setRisk(e.target.value)}>
+          value={risk} onChange={e => { setRisk(e.target.value); setPage(1); }}>
           <option value="">All Risk Levels</option>
           {['RELIABLE','MODERATE','HIGH_RISK','CHRONIC'].map(r => <option key={r} value={r}>{r.replace('_',' ')}</option>)}
         </select>
         <select className="px-3 py-2 rounded-lg text-xs outline-none" style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
-          value={isBlocked === undefined ? '' : String(isBlocked)} onChange={e => setBlocked(e.target.value === '' ? undefined : e.target.value === 'true')}>
+          value={isBlocked === undefined ? '' : String(isBlocked)} onChange={e => { setBlocked(e.target.value === '' ? undefined : e.target.value === 'true'); setPage(1); }}>
           <option value="">All Clients</option>
           <option value="false">Active</option>
           <option value="true">Blocked</option>
@@ -169,7 +173,30 @@ export default function ClientsPage() {
             </tbody>
           </table>
         )}
-      </div>      
+
+        {/* Pagination */}
+        {meta && meta.totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t text-xs" style={{ borderColor: 'var(--border)' }}>
+            <span style={{ color: 'var(--text-3)' }}>
+              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, meta.total)} of {meta.total} clients
+            </span>
+            <div className="flex items-center gap-1">
+              <GhostButton onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>← Prev</GhostButton>
+              {Array.from({ length: Math.min(5, meta.totalPages) }, (_, i) => {
+                const pg = Math.max(1, Math.min(meta.totalPages - 4, page - 2)) + i;
+                return pg <= meta.totalPages ? (
+                  <button key={pg} onClick={() => setPage(pg)}
+                    className="w-7 h-7 rounded text-[11px] font-medium transition-all"
+                    style={{ background: pg === page ? 'var(--amber)' : 'transparent', color: pg === page ? '#000' : 'var(--text-3)' }}>
+                    {pg}
+                  </button>
+                ) : null;
+              })}
+              <GhostButton onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages}>Next →</GhostButton>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
     <AddClientModal  open={addOpen}       onClose={() => setAddOpen(false)} />
       <EditClientModal client={editClient}  onClose={() => setEditClient(null)} />
