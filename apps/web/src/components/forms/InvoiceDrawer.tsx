@@ -319,7 +319,7 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
           style={{ background: 'var(--bg-1)', borderBottom: '1px solid var(--border)' }}
         >
           <div className="flex items-center gap-2">
-            <FileText size={15} style={{ color: 'var(--amber)' }} />
+            <FileText size={15} style={{ color: 'var(--indigo-2)' }} />
             <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
               {isEditing ? 'Edit Invoice' : (invoice?.invoiceNumber ?? 'Invoice Detail')}
             </span>
@@ -336,7 +336,7 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
               <button
                 onClick={openEdit}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-80"
-                style={{ background: 'rgba(245,158,11,0.1)', color: 'var(--amber)', border: '1px solid rgba(245,158,11,0.2)' }}
+                style={{ background: 'rgba(99,102,241,0.1)', color: 'var(--indigo-2)', border: '1px solid rgba(99,102,241,0.2)' }}
               >
                 <Pencil size={11} />
                 Edit

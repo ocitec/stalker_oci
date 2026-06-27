@@ -87,7 +87,7 @@ export default function AlertsPage() {
               className="px-4 py-2 rounded-lg text-xs font-medium transition-all"
               style={{
                 background: filter === tab.value ? 'var(--bg-3)' : 'transparent',
-                color:      filter === tab.value ? 'var(--amber)' : 'var(--text-3)',
+                color:      filter === tab.value ? 'var(--indigo-2)' : 'var(--text-3)',
                 border:     `1px solid ${filter === tab.value ? 'var(--border-2)' : 'transparent'}`,
               }}
             >

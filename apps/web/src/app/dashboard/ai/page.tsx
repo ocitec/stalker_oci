@@ -92,10 +92,10 @@ export default function AiPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Sparkles size={16} style={{ color: 'var(--amber)' }} />
+          <Sparkles size={16} style={{ color: 'var(--indigo-2)' }} />
           <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>AI Analytics Engine</span>
           <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
-            style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--amber)' }}>
+            style={{ background: 'rgba(99,102,241,0.12)', color: 'var(--indigo-2)' }}>
             Rule-based · Connect OpenAI to enable LLM
           </span>
         </div>
@@ -305,8 +305,8 @@ export default function AiPage() {
                       onClick={() => setPage(p)}
                       className="w-6 h-6 rounded-lg text-[11px] font-medium transition-all"
                       style={{
-                        background: page === p ? 'var(--amber)' : 'var(--bg-2)',
-                        color:      page === p ? '#000'          : 'var(--text-2)',
+                        background: page === p ? 'var(--indigo)' : 'var(--bg-2)',
+                        color:      page === p ? '#fff'           : 'var(--text-2)',
                       }}
                     >
                       {p}

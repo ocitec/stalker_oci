@@ -51,7 +51,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       type="button"
       onClick={() => onChange(!checked)}
       className="relative flex-shrink-0 w-10 h-5 rounded-full transition-all"
-      style={{ background: checked ? 'var(--amber)' : 'var(--bg-3)' }}
+      style={{ background: checked ? 'var(--indigo)' : 'var(--bg-3)' }}
     >
       <span
         className="absolute top-0.5 w-4 h-4 rounded-full transition-all"
@@ -127,7 +127,7 @@ export default function SettingsPage() {
     {
       icon:  <Building2 size={15} />,
       title: 'Organisation',
-      color: 'var(--amber)',
+      color: 'var(--indigo-2)',
       rows:  [
         <SettingRow key="orgName" label="Organisation Name" sub="Your company's trading name">
           <input
@@ -185,7 +185,7 @@ export default function SettingsPage() {
     {
       icon:  <Bell size={15} />,
       title: 'Alert Notifications',
-      color: 'var(--amber)',
+      color: 'var(--indigo-2)',
       rows:  [
         <SettingRow key="a7" label="7-Day Pre-Due Alerts" sub="Notify when invoices are due in 7 days">
           <Toggle checked={form.alertPre7Days} onChange={v => set('alertPre7Days', v)} />
@@ -252,7 +252,7 @@ export default function SettingsPage() {
       {isAdmin && isDirty && (
         <div
           className="sticky bottom-4 flex items-center justify-between px-5 py-3 rounded-xl"
-          style={{ background: 'var(--bg-2)', border: '1px solid var(--amber)', boxShadow: '0 4px 24px rgba(0,0,0,0.4)' }}
+          style={{ background: 'var(--bg-2)', border: '1px solid var(--indigo)', boxShadow: '0 4px 24px rgba(0,0,0,0.4)' }}
         >
           <p className="text-xs" style={{ color: 'var(--text-2)' }}>
             You have unsaved changes

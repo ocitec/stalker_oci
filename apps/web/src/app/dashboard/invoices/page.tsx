@@ -179,7 +179,7 @@ export default function InvoicesPage() {
                 return pg <= meta.totalPages ? (
                   <button key={pg} onClick={() => setPage(pg)}
                     className="w-7 h-7 rounded text-[11px] font-medium transition-all"
-                    style={{ background: pg === page ? 'var(--amber)' : 'transparent', color: pg === page ? '#000' : 'var(--text-3)' }}>
+                    style={{ background: pg === page ? 'var(--indigo)' : 'transparent', color: pg === page ? '#fff' : 'var(--text-3)' }}>
                     {pg}
                   </button>
                 ) : null;

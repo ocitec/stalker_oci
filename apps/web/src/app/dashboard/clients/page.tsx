@@ -105,7 +105,7 @@ export default function ClientsPage() {
               {clients.map(c => {
                 const pdi      = Math.round(Number(c.paymentDisciplineIndex));
                 const utilPct  = c.utilizationPercent ?? 0;
-                const utilColor = utilPct > 80 ? '#F43F5E' : utilPct > 50 ? '#F59E0B' : '#10B981';
+                const utilColor = utilPct > 100 ? '#F43F5E' : utilPct > 80 ? '#F59E0B' : 'var(--text-3)';
                 return (
                   <tr key={c.id} onClick={() => setClientId(c.id)}
                     className="border-b cursor-pointer hover:opacity-90 transition-all" style={{ borderColor: 'var(--border)' }}>
@@ -187,7 +187,7 @@ export default function ClientsPage() {
                 return pg <= meta.totalPages ? (
                   <button key={pg} onClick={() => setPage(pg)}
                     className="w-7 h-7 rounded text-[11px] font-medium transition-all"
-                    style={{ background: pg === page ? 'var(--amber)' : 'transparent', color: pg === page ? '#000' : 'var(--text-3)' }}>
+                    style={{ background: pg === page ? 'var(--indigo)' : 'transparent', color: pg === page ? '#fff' : 'var(--text-3)' }}>
                     {pg}
                   </button>
                 ) : null;

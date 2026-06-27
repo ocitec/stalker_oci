@@ -39,6 +39,9 @@ export class DashboardService {
   }
 
   private async getCoreKPIs(organizationId: string) {
+    const today = new Date();
+    const thirtyDaysAgo = subDays(today, 30);
+
     const [
       totalOutstandingResult,
       overdueResult,
@@ -47,6 +50,9 @@ export class DashboardService {
       totalClients,
       blockedClients,
       chronicClients,
+      paymentsLast30,
+      newOverdueLast30,
+      newInvoicesLast30,
     ] = await Promise.all([
       this.prisma.invoice.aggregate({
         where: {
@@ -71,12 +77,54 @@ export class DashboardService {
       this.prisma.client.count({ where: { organizationId } }),
       this.prisma.client.count({ where: { organizationId, isBlocked: true } }),
       this.prisma.client.count({ where: { organizationId, riskStatus: 'CHRONIC' } }),
+      // Trend: payments received in last 30 days
+      this.prisma.paymentRecord.aggregate({
+        where: {
+          invoice: { client: { organizationId } },
+          isReverted: false,
+          paymentDate: { gte: thirtyDaysAgo },
+        },
+        _sum: { amount: true },
+      }),
+      // Trend: overdue invoices whose due date fell in the last 30 days (new additions)
+      this.prisma.invoice.aggregate({
+        where: {
+          client: { organizationId },
+          status: { in: ['OVERDUE', 'PARTIALLY_PAID'] },
+          dueDate: { gte: thirtyDaysAgo, lt: today },
+        },
+        _sum: { remainingBalance: true },
+      }),
+      // Trend: new invoices issued in last 30 days (added to outstanding pool)
+      this.prisma.invoice.aggregate({
+        where: {
+          client: { organizationId },
+          invoiceDate: { gte: thirtyDaysAgo },
+        },
+        _sum: { invoiceAmount: true },
+      }),
     ]);
 
     const totalOutstanding = Number(totalOutstandingResult._sum.remainingBalance ?? 0);
-    const overdueValue = Number(overdueResult._sum.remainingBalance ?? 0);
-    const overduePercent = totalOutstanding > 0
+    const overdueValue     = Number(overdueResult._sum.remainingBalance ?? 0);
+    const overduePercent   = totalOutstanding > 0
       ? Math.round((overdueValue / totalOutstanding) * 100)
+      : 0;
+
+    // Month-over-month approximation:
+    //   lastMonthValue ≈ currentValue - newAdditionsThisMonth + collectionsThisMonth
+    const collected30d  = Number(paymentsLast30._sum.amount             ?? 0);
+    const newOverdueAmt = Number(newOverdueLast30._sum.remainingBalance  ?? 0);
+    const newInvoiceAmt = Number(newInvoicesLast30._sum.invoiceAmount    ?? 0);
+
+    const overdueLastMonth     = Math.max(0, overdueValue     - newOverdueAmt + collected30d);
+    const outstandingLastMonth = Math.max(0, totalOutstanding - newInvoiceAmt + collected30d);
+
+    const overdueChangePct = overdueLastMonth > 0
+      ? Math.round(((overdueValue - overdueLastMonth) / overdueLastMonth) * 100)
+      : 0;
+    const outstandingChangePct = outstandingLastMonth > 0
+      ? Math.round(((totalOutstanding - outstandingLastMonth) / outstandingLastMonth) * 100)
       : 0;
 
     return {
@@ -88,6 +136,8 @@ export class DashboardService {
       totalClients,
       blockedClients,
       chronicClients,
+      overdueChangePct,
+      outstandingChangePct,
     };
   }
 

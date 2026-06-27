@@ -68,8 +68,8 @@ function InviteModal({ open, onClose }: { open: boolean; onClose: () => void }) 
         <div className="flex items-center justify-between px-6 py-4"
           style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-1)' }}>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(245,158,11,0.12)' }}>
-              <Mail size={15} style={{ color: 'var(--amber)' }} />
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.12)' }}>
+              <Mail size={15} style={{ color: 'var(--indigo-2)' }} />
             </div>
             <div>
               <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Invite Team Member</h2>
@@ -235,7 +235,7 @@ export default function UsersPage() {
               className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
               style={{
                 background: roleFilter === tab.value ? 'var(--bg-3)' : 'transparent',
-                color:      roleFilter === tab.value ? 'var(--amber)' : 'var(--text-3)',
+                color:      roleFilter === tab.value ? 'var(--indigo-2)' : 'var(--text-3)',
                 border:     `1px solid ${roleFilter === tab.value ? 'var(--border-2)' : 'transparent'}`,
               }}
             >

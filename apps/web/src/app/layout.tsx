@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { Toaster } from 'sonner';
 import { Providers } from '@/components/layout/Providers';
 // @ts-ignore: side-effect import for global CSS
 import './globals.css';
@@ -19,20 +18,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <Providers>
           {children}
-          <Toaster
-            position="bottom-right"
-            toastOptions={{
-              style: {
-                background: '#131929',
-                border: '1px solid #2A3A5C',
-                color: '#E8EDF8',
-              },
-            }}
-          />
         </Providers>
       </body>
     </html>

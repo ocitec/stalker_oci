@@ -12,12 +12,52 @@
   --text:     #E8EDF8;
   --text-2:   #8B9DC3;
   --text-3:   #5A6E96;
+  /* Brand / interactive */
+  --indigo:   #6366F1;
+  --indigo-2: #818CF8;
+  /* Semantic signals only */
   --amber:    #F59E0B;
   --amber-2:  #FCD34D;
-  --green:    #10B981;
-  --red:      #F43F5E;
-  --blue:     #3B82F6;
+  --green:    #22C55E;
+  --red:      #EF4444;
 }
+
+/* ── Light mode overrides ──────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-0:     #F0F4FA;
+  --bg-1:     #FFFFFF;
+  --bg-2:     #F1F5F9;
+  --bg-3:     #E2E8F0;
+  --border:   #CBD5E1;
+  --border-2: #94A3B8;
+  --text:     #0F172A;
+  --text-2:   #334155;
+  --text-3:   #64748B;
+  /* Brand / interactive — slightly darker for light-bg contrast */
+  --indigo:   #4F46E5;
+  --indigo-2: #6366F1;
+  /* Semantic — darker shades for readability on white */
+  --amber:    #D97706;
+  --amber-2:  #F59E0B;
+  --green:    #16A34A;
+  --red:      #DC2626;
+}
+
+[data-theme="light"] .status-overdue     { background: rgba(220,38,38,0.08);  color: #DC2626; }
+[data-theme="light"] .status-due-today   { background: rgba(217,119,6,0.10);  color: #D97706; }
+[data-theme="light"] .status-partial     { background: rgba(217,119,6,0.10);  color: #D97706; }
+[data-theme="light"] .status-approaching { background: rgba(217,119,6,0.10);  color: #D97706; }
+[data-theme="light"] .status-clear       { background: rgba(22,163,74,0.08);  color: #16A34A; }
+[data-theme="light"] .status-paid        { background: rgba(100,116,139,0.10); color: #64748B; }
+[data-theme="light"] .status-cancelled   { background: rgba(100,116,139,0.10); color: #64748B; }
+
+[data-theme="light"] .skeleton {
+  background: linear-gradient(90deg, #E2E8F0 25%, #CBD5E1 50%, #E2E8F0 75%);
+  background-size: 400px 100%;
+}
+
+[data-theme="light"]::-webkit-scrollbar-track { background: #F1F5F9; }
+[data-theme="light"]::-webkit-scrollbar-thumb { background: #CBD5E1; }
 
 * { box-sizing: border-box; }
 
@@ -120,7 +160,7 @@ html, body {
   color:         var(--text);
 }
 .form-input:focus {
-  border-color: var(--amber);
+  border-color: var(--indigo);
 }
 .form-input::placeholder {
   color: var(--text-3);
@@ -141,8 +181,11 @@ html, body {
 }
 
 /* ── Status pills ─────────────────────────────────────────────────────────── */
-.status-overdue     { background: rgba(244,63,94,0.12);  color: #F43F5E; }
-.status-due-today   { background: rgba(245,158,11,0.12); color: #F59E0B; }
-.status-approaching { background: rgba(59,130,246,0.12); color: #3B82F6; }
-.status-clear       { background: rgba(16,185,129,0.12); color: #10B981; }
-.status-paid        { background: rgba(90,110,150,0.15); color: #5A6E96; }
+/* Three semantic colors only: green=healthy, amber=watch, red=action-required */
+.status-overdue     { background: rgba(239,68,68,0.12);   color: #EF4444; }  /* red   */
+.status-due-today   { background: rgba(245,158,11,0.12); color: #F59E0B; }  /* amber */
+.status-partial     { background: rgba(245,158,11,0.12); color: #F59E0B; }  /* amber — partially paid */
+.status-approaching { background: rgba(245,158,11,0.12); color: #F59E0B; }  /* amber — watch */
+.status-clear       { background: rgba(34,197,94,0.12);  color: #22C55E; }  /* green */
+.status-paid        { background: rgba(90,110,150,0.15); color: #5A6E96; }  /* neutral */
+.status-cancelled   { background: rgba(90,110,150,0.12); color: #5A6E96; }  /* neutral */

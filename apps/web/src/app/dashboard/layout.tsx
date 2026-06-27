@@ -87,13 +87,13 @@ function IdleWarningDialog({ countdown, onStay, onLogout }: {
       >
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(245,158,11,0.12)' }}>
-            <ShieldAlert size={18} style={{ color: 'var(--amber)' }} />
+            style={{ background: 'rgba(99,102,241,0.12)' }}>
+            <ShieldAlert size={18} style={{ color: 'var(--indigo-2)' }} />
           </div>
           <div>
             <p className="font-semibold text-sm" style={{ color: 'var(--text)' }}>Session expiring soon</p>
             <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-              You'll be logged out in <span className="font-bold tabular-nums" style={{ color: 'var(--amber)' }}>{countdown}s</span> due to inactivity.
+              You'll be logged out in <span className="font-bold tabular-nums" style={{ color: 'var(--indigo-2)' }}>{countdown}s</span> due to inactivity.
             </p>
           </div>
         </div>
@@ -102,7 +102,7 @@ function IdleWarningDialog({ countdown, onStay, onLogout }: {
           <button
             onClick={onStay}
             className="flex-1 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
-            style={{ background: 'var(--amber)', color: '#000' }}
+            style={{ background: 'var(--indigo)', color: '#fff' }}
           >
             Stay logged in
           </button>

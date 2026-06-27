@@ -104,9 +104,9 @@ export function AddClientModal({ open, onClose }: Props) {
           <div className="flex items-center gap-3">
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ background: 'rgba(245,158,11,0.12)' }}
+              style={{ background: 'rgba(99,102,241,0.12)' }}
             >
-              <Building2 size={15} style={{ color: 'var(--amber)' }} />
+              <Building2 size={15} style={{ color: 'var(--indigo-2)' }} />
             </div>
             <div>
               <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Add Client</h2>

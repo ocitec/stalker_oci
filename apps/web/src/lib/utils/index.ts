@@ -86,9 +86,9 @@ export function getStatusLabel(status: string): string {
 // Returns the semantic accent color for each invoice status
 export function getStatusColor(status: string): string {
   switch (status) {
-    case 'PAID':           return '#10B981';  // green
-    case 'PARTIALLY_PAID': return '#3B82F6';  // blue — in progress
-    case 'OVERDUE':        return '#F43F5E';  // red
+    case 'PAID':           return '#22C55E';  // green
+    case 'PARTIALLY_PAID': return '#F59E0B';  // amber — partially paid = watch
+    case 'OVERDUE':        return '#EF4444';  // red
     case 'DUE_TODAY':      return '#F59E0B';  // amber
     case 'PENDING':        return '#5A6E96';  // muted
     case 'CANCELLED':      return '#5A6E96';  // muted
@@ -104,19 +104,17 @@ export function isOutstanding(status: InvoiceStatus): boolean {
 // ── Payment progress colour ───────────────────────────────────────────────
 // Returns a colour based on what percentage of the invoice has been paid.
 export function getPaymentProgressColor(pct: number): string {
-  if (pct >= 100) return '#10B981'; // fully paid — green
-  if (pct >= 50)  return '#3B82F6'; // half paid — blue
+  if (pct >= 100) return '#22C55E'; // fully paid — green
+  if (pct >= 50)  return '#F59E0B'; // half paid — amber (watch: still outstanding)
   if (pct >= 25)  return '#F59E0B'; // quarter paid — amber
-  return '#F43F5E';                  // barely started — red
+  return '#EF4444';                  // barely started — red
 }
 
 // ── PDI helpers ───────────────────────────────────────────────────────────
 export function getPdiColor(pdi: number): string {
-  if (pdi >= 80) return '#10B981';
-  if (pdi >= 60) return '#3B82F6';
-  if (pdi >= 40) return '#F59E0B';
-  if (pdi >= 20) return '#F97316';
-  return '#F43F5E';
+  if (pdi >= 80) return '#22C55E';  // green  — reliable
+  if (pdi >= 60) return '#F59E0B';  // amber  — watch
+  return '#EF4444';                  // red    — action required
 }
 
 export function getPdiLabel(pdi: number): string {
@@ -138,11 +136,10 @@ export function getRiskBadgeClass(risk: string): string {
 
 // ── Follow-up staleness colour ─────────────────────────────────────────────
 export function getFollowUpColor(daysSince: number | null | undefined): string {
-  if (daysSince == null)  return '#5A6E96';
-  if (daysSince > 10)     return '#F43F5E';
-  if (daysSince > 5)      return '#F59E0B';
-  if (daysSince > 2)      return '#3B82F6';
-  return '#10B981';
+  if (daysSince == null) return '#5A6E96';  // neutral — no contact recorded
+  if (daysSince > 5)    return '#EF4444';  // red    — stale, action required
+  if (daysSince > 2)    return '#F59E0B';  // amber  — watch
+  return '#22C55E';                         // green  — recently contacted
 }
 
 // ── Percentage helper ─────────────────────────────────────────────────────

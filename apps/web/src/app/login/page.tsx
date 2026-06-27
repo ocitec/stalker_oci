@@ -51,8 +51,8 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="flex items-center gap-3 mb-8 justify-center">
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-black text-base"
-            style={{ background: 'var(--amber)' }}
+            className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-base"
+            style={{ background: 'var(--indigo)' }}
           >
             S1
           </div>
@@ -85,7 +85,7 @@ export default function LoginPage() {
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
                 }}
-                onFocus={e => e.target.style.borderColor = 'var(--amber)'}
+                onFocus={e => e.target.style.borderColor = 'var(--indigo)'}
                 onBlur={e => e.target.style.borderColor = 'var(--border)'}
               />
             </div>
@@ -106,7 +106,7 @@ export default function LoginPage() {
                     border: '1px solid var(--border)',
                     color: 'var(--text)',
                   }}
-                  onFocus={e => e.target.style.borderColor = 'var(--amber)'}
+                  onFocus={e => e.target.style.borderColor = 'var(--indigo)'}
                   onBlur={e => e.target.style.borderColor = 'var(--border)'}
                 />
                 <button
@@ -124,7 +124,7 @@ export default function LoginPage() {
               type="submit"
               disabled={loading}
               className="w-full py-2.5 rounded-lg text-sm font-bold transition-all hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
-              style={{ background: 'var(--amber)', color: '#000' }}
+              style={{ background: 'var(--indigo)', color: '#fff' }}
             >
               {loading ? <><Loader2 size={14} className="animate-spin" />Signing in…</> : 'Sign in'}
             </button>
@@ -151,7 +151,7 @@ export default function LoginPage() {
                 >
                   <span
                     className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                    style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--amber)' }}
+                    style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--indigo-2)' }}
                   >
                     {c.role}
                   </span>

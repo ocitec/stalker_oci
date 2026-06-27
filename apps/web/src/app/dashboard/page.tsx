@@ -18,14 +18,15 @@ import { ActionSeverity } from '@/types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Semantic palette: red = action required, amber = watch, neutral = informational
 function actionColor(s: ActionSeverity) {
-  return s === 'CRITICAL' ? '#F43F5E' : s === 'HIGH' ? '#F97316' : s === 'MEDIUM' ? '#F59E0B' : '#3B82F6';
+  return s === 'CRITICAL' || s === 'HIGH' ? '#F43F5E' : s === 'MEDIUM' ? '#F59E0B' : '#8B9DC3';
 }
 function actionBg(s: ActionSeverity) {
-  return s === 'CRITICAL' ? 'rgba(244,63,94,0.12)' : s === 'HIGH' ? 'rgba(249,115,22,0.12)' : s === 'MEDIUM' ? 'rgba(245,158,11,0.12)' : 'rgba(59,130,246,0.12)';
+  return s === 'CRITICAL' || s === 'HIGH' ? 'rgba(244,63,94,0.10)' : s === 'MEDIUM' ? 'rgba(245,158,11,0.10)' : 'rgba(139,157,195,0.08)';
 }
 function actionBorder(s: ActionSeverity) {
-  return s === 'CRITICAL' ? 'rgba(244,63,94,0.3)' : s === 'HIGH' ? 'rgba(249,115,22,0.3)' : s === 'MEDIUM' ? 'rgba(245,158,11,0.3)' : 'rgba(59,130,246,0.3)';
+  return s === 'CRITICAL' || s === 'HIGH' ? 'rgba(244,63,94,0.25)' : s === 'MEDIUM' ? 'rgba(245,158,11,0.25)' : 'rgba(139,157,195,0.2)';
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -46,13 +47,14 @@ export default function DashboardPage() {
   const cp = data?.collectionsPerformance;
 
   // Aging buckets
+  // Aging heat: green (current/healthy) → amber (watch) → red (action)
   const agingBuckets = aging
     ? [
-        { label: 'Current',  days: '0d',    value: aging.current?.value ?? 0, count: aging.current?.count ?? 0, color: '#10B981' },
-        { label: '1–30d',    days: '1–30d', value: aging['1_30']?.value  ?? 0, count: aging['1_30']?.count  ?? 0, color: '#F59E0B' },
-        { label: '31–60d',   days: '31–60d',value: aging['31_60']?.value ?? 0, count: aging['31_60']?.count ?? 0, color: '#F97316' },
-        { label: '61–90d',   days: '61–90d',value: aging['61_90']?.value ?? 0, count: aging['61_90']?.count ?? 0, color: '#F43F5E' },
-        { label: '90d+',     days: '90d+',  value: aging.over_90?.value  ?? 0, count: aging.over_90?.count  ?? 0, color: '#9333EA' },
+        { label: 'Current', value: aging.current?.value ?? 0, count: aging.current?.count ?? 0, color: '#10B981' },
+        { label: '1–30d',   value: aging['1_30']?.value  ?? 0, count: aging['1_30']?.count  ?? 0, color: '#F59E0B' },
+        { label: '31–60d',  value: aging['31_60']?.value ?? 0, count: aging['31_60']?.count ?? 0, color: '#D97706' },
+        { label: '61–90d',  value: aging['61_90']?.value ?? 0, count: aging['61_90']?.count ?? 0, color: '#F43F5E' },
+        { label: '90d+',    value: aging.over_90?.value  ?? 0, count: aging.over_90?.count  ?? 0, color: '#C01031' },
       ]
     : [];
   const agingTotal = agingBuckets.reduce((s, b) => s + b.value, 0);
@@ -69,11 +71,14 @@ export default function DashboardPage() {
           <>
             <div className="cursor-pointer transition-opacity hover:opacity-80" onClick={() => router.push('/dashboard/invoices')}>
               <KpiCard label="Total Outstanding" value={fmtCurrency(data.kpis.totalOutstanding)}
-                sub={`${(data.kpis.overdueCount ?? 0) + (data.kpis.dueTodayCount ?? 0)} invoices need attention`} accent="var(--amber)" />
+                sub={`${(data.kpis.overdueCount ?? 0) + (data.kpis.dueTodayCount ?? 0)} invoices need attention`}
+                accent="var(--indigo-2)"
+                delta={data.kpis.outstandingChangePct !== 0 ? { pct: data.kpis.outstandingChangePct } : undefined} />
             </div>
             <div className="cursor-pointer transition-opacity hover:opacity-80" onClick={() => router.push('/dashboard/invoices?status=OVERDUE')}>
               <KpiCard label="Total Overdue" value={fmtCurrency(data.kpis.overdueValue)}
-                trendLabel={`${data.kpis.overdueCount} overdue invoices`} trend="up" accent="var(--red)" />
+                trendLabel={`${data.kpis.overdueCount} overdue invoices`} trend="up" accent="var(--red)"
+                delta={data.kpis.overdueChangePct !== 0 ? { pct: data.kpis.overdueChangePct } : undefined} />
             </div>
             <div className="cursor-pointer transition-opacity hover:opacity-80" onClick={() => router.push('/dashboard/invoices?status=OVERDUE')}>
               <KpiCard label="Overdue %" value={`${data.kpis.overduePercent}%`} sub="of total outstanding"
@@ -96,7 +101,7 @@ export default function DashboardPage() {
             action={
               <button onClick={() => router.push('/dashboard/invoices')}
                 className="text-[11px] flex items-center gap-1 transition-opacity hover:opacity-70"
-                style={{ color: 'var(--amber)' }}>
+                style={{ color: 'var(--indigo-2)' }}>
                 Drill into invoices <ChevronRight size={12} />
               </button>
             }
@@ -170,8 +175,8 @@ export default function DashboardPage() {
             { icon: <CheckCircle2 size={13} style={{ color: 'var(--green)' }} />, label: 'Compliance',
               value: `${fu?.complianceRate ?? 0}%`, accent: (fu?.complianceRate ?? 0) >= 70 ? 'var(--green)' : 'var(--amber)',
               alert: false, bar: fu?.complianceRate ?? 0, link: '/dashboard/followups' },
-            { icon: <ArrowUpRight size={13} style={{ color: '#F97316' }} />, label: 'Escalations',
-              value: fu?.escalationsPending ?? 0, accent: '#F97316', alert: (fu?.escalationsPending ?? 0) > 0, link: '/dashboard/alerts' },
+            { icon: <ArrowUpRight size={13} style={{ color: '#F43F5E' }} />, label: 'Escalations',
+              value: fu?.escalationsPending ?? 0, accent: '#F43F5E', alert: (fu?.escalationsPending ?? 0) > 0, link: '/dashboard/alerts' },
           ].map(tile => (
             <div key={tile.label}
               className="p-4 rounded-lg cursor-pointer transition-opacity hover:opacity-80"
@@ -220,7 +225,7 @@ export default function DashboardPage() {
             action={
               <button onClick={() => router.push('/dashboard/clients')}
                 className="text-[11px] flex items-center gap-1 transition-opacity hover:opacity-70"
-                style={{ color: 'var(--amber)' }}>
+                style={{ color: 'var(--indigo-2)' }}>
                 All clients <ChevronRight size={12} />
               </button>
             }
@@ -283,11 +288,11 @@ export default function DashboardPage() {
         <div className="card p-5">
           <SectionTitle
             title="Top Overdue Invoices"
-            badge={<Badge style={{ background: 'rgba(249,115,22,0.12)', color: '#F97316', borderColor: 'rgba(249,115,22,0.2)' }}>{data?.kpis?.overdueCount ?? 0} total</Badge>}
+            badge={<Badge style={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', borderColor: 'rgba(245,158,11,0.2)' }}>{data?.kpis?.overdueCount ?? 0} total</Badge>}
             action={
               <button onClick={() => router.push('/dashboard/invoices?status=OVERDUE')}
                 className="text-[11px] flex items-center gap-1 transition-opacity hover:opacity-70"
-                style={{ color: 'var(--amber)' }}>
+                style={{ color: 'var(--indigo-2)' }}>
                 View all <ChevronRight size={12} />
               </button>
             }
@@ -320,7 +325,7 @@ export default function DashboardPage() {
                       </td>
                       <td className="py-2.5 mono font-bold" style={{ color: 'var(--red)' }}>{fmtCurrency(inv.remainingBalance)}</td>
                       <td className="py-2.5">
-                        <span className="mono font-bold" style={{ color: inv.daysOverdue > 60 ? '#F43F5E' : inv.daysOverdue > 30 ? '#F97316' : '#F59E0B' }}>
+                        <span className="mono font-bold" style={{ color: inv.daysOverdue > 30 ? '#F43F5E' : '#F59E0B' }}>
                           +{inv.daysOverdue}d
                         </span>
                       </td>
@@ -352,7 +357,7 @@ export default function DashboardPage() {
             {[
               { value: data?.creditEnforcement?.totalBreaches ?? 0,                       label: 'Limit Breaches',  accent: 'var(--red)',   bg: 'rgba(244,63,94,0.08)',   border: 'rgba(244,63,94,0.15)',  link: '/dashboard/clients' },
               { value: data?.creditEnforcement?.totalNearLimit ?? 0,                      label: 'Near Limit ≥80%', accent: 'var(--amber)', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.15)', link: '/dashboard/clients' },
-              { value: data?.creditEnforcement?.recommendCreditHold?.length ?? 0,         label: 'Recommend Hold',  accent: '#F97316',       bg: 'rgba(249,115,22,0.08)', border: 'rgba(249,115,22,0.15)', link: '/dashboard/clients?riskStatus=HIGH_RISK' },
+              { value: data?.creditEnforcement?.recommendCreditHold?.length ?? 0,         label: 'Recommend Hold',  accent: 'var(--red)',    bg: 'rgba(244,63,94,0.08)',  border: 'rgba(244,63,94,0.15)',  link: '/dashboard/clients?riskStatus=HIGH_RISK' },
             ].map(m => (
               <div key={m.label} className="rounded-lg p-3 text-center cursor-pointer transition-opacity hover:opacity-80"
                 style={{ background: m.bg, border: `1px solid ${m.border}` }}
@@ -391,7 +396,7 @@ export default function DashboardPage() {
               <div className="space-y-1.5">
                 {(data.creditEnforcement.recommendCreditHold ?? []).map((c: any) => (
                   <div key={c.id} className="flex items-center justify-between text-xs p-2.5 rounded-lg cursor-pointer transition-opacity hover:opacity-80"
-                    style={{ background: 'rgba(249,115,22,0.06)', border: '1px solid rgba(249,115,22,0.1)' }}
+                    style={{ background: 'rgba(244,63,94,0.05)', border: '1px solid rgba(244,63,94,0.12)' }}
                     onClick={() => setDrawerClientId(c.id)}>
                     <div className="min-w-0">
                       <p className="font-semibold truncate" style={{ color: 'var(--text)', maxWidth: 130 }}>{c.name}</p>
@@ -422,7 +427,7 @@ export default function DashboardPage() {
             <SectionTitle title="SLA Monitoring"
               action={<button onClick={() => router.push('/dashboard/sla')}
                 className="text-[11px] flex items-center gap-1 transition-opacity hover:opacity-70"
-                style={{ color: 'var(--amber)' }}>View breaches <ChevronRight size={12} /></button>}
+                style={{ color: 'var(--indigo-2)' }}>View breaches <ChevronRight size={12} /></button>}
             />
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div className="rounded-lg p-3 cursor-pointer transition-opacity hover:opacity-80" style={{ background: 'var(--bg-2)' }}
@@ -462,9 +467,9 @@ export default function DashboardPage() {
               title="Recovery Performance"
               badge={
                 <Badge style={{
-                  background: (cp?.targetAchievement ?? 0) >= 80 ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
-                  color: (cp?.targetAchievement ?? 0) >= 80 ? '#10B981' : 'var(--amber)',
-                  borderColor: (cp?.targetAchievement ?? 0) >= 80 ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)',
+                  background: (cp?.targetAchievement ?? 0) >= 80 ? 'rgba(34,197,94,0.1)'  : 'rgba(245,158,11,0.1)',
+                  color:      (cp?.targetAchievement ?? 0) >= 80 ? 'var(--green)'          : 'var(--amber)',
+                  borderColor:(cp?.targetAchievement ?? 0) >= 80 ? 'rgba(34,197,94,0.2)'  : 'rgba(245,158,11,0.2)',
                 }}>
                   {cp?.targetAchievement ?? 0}% of target
                 </Badge>
@@ -495,7 +500,7 @@ export default function DashboardPage() {
                 <div className="flex justify-between mt-1">
                   {(cp?.recoveryGap ?? 0) > 0 && (
                     <p className="text-[10px]" style={{ color: 'var(--text-3)' }}>
-                      Gap: <span className="mono font-semibold" style={{ color: '#F97316' }}>{fmtCurrency(cp?.recoveryGap ?? 0)}</span>
+                      Gap: <span className="mono font-semibold" style={{ color: 'var(--red)' }}>{fmtCurrency(cp?.recoveryGap ?? 0)}</span>
                     </p>
                   )}
                   <p className="text-[10px]" style={{ color: 'var(--text-3)' }}>
@@ -504,6 +509,21 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+
+            {/* WoW collection efficiency delta */}
+            {weeklyTrend.length >= 2 && (() => {
+              const thisWk = weeklyTrend[weeklyTrend.length - 1].collected;
+              const lastWk = weeklyTrend[weeklyTrend.length - 2].collected;
+              const wowPct = lastWk > 0 ? Math.round(((thisWk - lastWk) / lastWk) * 100) : 0;
+              if (wowPct === 0) return null;
+              const isUp = wowPct > 0;
+              return (
+                <p className="mono text-[11px] mb-3 font-semibold" style={{ color: isUp ? 'var(--green)' : 'var(--red)' }}>
+                  {isUp ? '↑' : '↓'} {Math.abs(wowPct)}%{' '}
+                  <span className="font-normal" style={{ color: 'var(--text-3)' }}>vs last week</span>
+                </p>
+              );
+            })()}
 
             {/* Weekly trend bars */}
             <div className="flex items-end gap-2" style={{ height: 44 }}>

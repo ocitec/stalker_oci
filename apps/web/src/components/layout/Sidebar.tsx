@@ -1,11 +1,13 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import {
   LayoutDashboard, Bell, FileText, Building2,
   Clock, BarChart3, AlertTriangle, Sparkles,
-  LogOut, Settings, ChevronRight, Users,
+  LogOut, Settings, ChevronRight, Users, Sun, Moon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/store/auth.store';
@@ -51,6 +53,11 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, refreshToken, clearAuth } = useAuthStore();
   const { data: unreadCount } = useUnreadCount();
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const isDark = resolvedTheme !== 'light';
 
   const handleLogout = async () => {
     try {
@@ -82,8 +89,8 @@ export function Sidebar() {
       <div className="p-5 border-b" style={{ borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-3">
           <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-black text-sm"
-            style={{ background: 'var(--amber)' }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-white text-sm"
+            style={{ background: 'var(--indigo)' }}
           >
             S1
           </div>
@@ -113,7 +120,7 @@ export function Sidebar() {
                     active ? 'font-semibold' : 'hover:opacity-100',
                   )}
                   style={{
-                    color:      active ? 'var(--amber)' : 'var(--text-2)',
+                    color:      active ? 'var(--indigo-2)' : 'var(--text-2)',
                     background: active ? 'var(--bg-3)' : 'transparent',
                   }}
                 >
@@ -124,7 +131,7 @@ export function Sidebar() {
                       {count}
                     </span>
                   )}
-                  {active && <ChevronRight size={12} style={{ color: 'var(--amber)' }} />}
+                  {active && <ChevronRight size={12} style={{ color: 'var(--indigo-2)' }} />}
                 </Link>
               );
             })}
@@ -137,7 +144,7 @@ export function Sidebar() {
         <div className="flex items-center gap-2.5 mb-3">
           <div
             className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
-            style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--amber)' }}
+            style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--indigo-2)' }}
           >
             {user?.name?.slice(0, 2).toUpperCase() ?? 'US'}
           </div>
@@ -148,14 +155,27 @@ export function Sidebar() {
             </p>
           </div>
         </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-xs transition-all hover:opacity-80"
-          style={{ color: 'var(--text-3)' }}
-        >
-          <LogOut size={13} />
-          Sign out
-        </button>
+        <div className="flex items-center gap-1 mb-1">
+          {mounted && (
+            <button
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              className="flex items-center gap-1.5 flex-1 px-2 py-1.5 rounded-lg text-xs transition-all hover:opacity-80"
+              style={{ color: 'var(--text-3)' }}
+              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDark ? <Sun size={13} /> : <Moon size={13} />}
+              {isDark ? 'Light mode' : 'Dark mode'}
+            </button>
+          )}
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs transition-all hover:opacity-80"
+            style={{ color: 'var(--text-3)' }}
+            title="Sign out"
+          >
+            <LogOut size={13} />
+          </button>
+        </div>
       </div>
     </aside>
   );

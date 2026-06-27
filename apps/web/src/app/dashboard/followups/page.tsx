@@ -101,7 +101,7 @@ export default function FollowUpsPage() {
                       className="flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all hover:opacity-80"
                       style={{
                         background: 'var(--bg-2)',
-                        border: `1px solid ${selectedInvoice === inv.id ? 'var(--amber)' : 'var(--border)'}`,
+                        border: `1px solid ${selectedInvoice === inv.id ? 'var(--indigo)' : 'var(--border)'}`,
                       }}
                     >
                       <div className="mono text-xl font-black w-10 text-right flex-shrink-0" style={{ color }}>
@@ -157,7 +157,7 @@ export default function FollowUpsPage() {
         {showForm && selectedInvoice ? (
           <div
             className="card p-5"
-            style={{ borderColor: 'var(--amber)', borderWidth: 1 }}
+            style={{ borderColor: 'var(--indigo)', borderWidth: 1 }}
           >
             <SectionTitle title="Log Follow-up" />
             <div className="space-y-3">
@@ -172,8 +172,8 @@ export default function FollowUpsPage() {
                       onClick={() => setFuType(t)}
                       className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                       style={{
-                        background: fuType === t ? 'var(--amber)' : 'var(--bg-3)',
-                        color:      fuType === t ? '#000'          : 'var(--text-2)',
+                        background: fuType === t ? 'var(--indigo)' : 'var(--bg-3)',
+                        color:      fuType === t ? '#fff'           : 'var(--text-2)',
                       }}
                     >
                       {t}

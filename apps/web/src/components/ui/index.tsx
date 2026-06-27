@@ -3,6 +3,13 @@
 import { cn } from '@/lib/utils';
 
 // ── KPI Card ───────────────────────────────────
+interface KpiCardDelta {
+  pct: number;
+  label?: string;
+  /** When true, a positive pct is good (e.g. collection efficiency up). Default: positive = bad. */
+  inverted?: boolean;
+}
+
 interface KpiCardProps {
   label: string;
   value: string | number;
@@ -11,10 +18,18 @@ interface KpiCardProps {
   trendLabel?: string;
   accent?: string;
   loading?: boolean;
+  delta?: KpiCardDelta;
 }
 
-export function KpiCard({ label, value, sub, trend, trendLabel, accent, loading }: KpiCardProps) {
+export function KpiCard({ label, value, sub, trend, trendLabel, accent, loading, delta }: KpiCardProps) {
   if (loading) return <SkeletonCard />;
+
+  let deltaColor = '#5A6E96';
+  if (delta && delta.pct !== 0) {
+    const isGood = delta.inverted ? delta.pct > 0 : delta.pct < 0;
+    deltaColor = isGood ? '#10B981' : '#F43F5E';
+  }
+
   return (
     <div className="card p-4 transition-all cursor-default">
       <p className="text-[11px] uppercase tracking-widest mb-1.5 font-medium" style={{ color: 'var(--text-3)' }}>
@@ -23,7 +38,14 @@ export function KpiCard({ label, value, sub, trend, trendLabel, accent, loading 
       <p className="mono text-2xl font-bold leading-none tracking-tight" style={{ color: accent || 'var(--text)' }}>
         {value}
       </p>
-      {(sub || trendLabel) && (
+      {delta && (
+        <p className="mono text-[11px] mt-1.5 flex items-center gap-0.5 font-semibold" style={{ color: deltaColor }}>
+          {delta.pct > 0 ? '↑' : delta.pct < 0 ? '↓' : '→'}{' '}
+          {Math.abs(delta.pct)}%{' '}
+          <span className="font-normal" style={{ color: 'var(--text-3)' }}>{delta.label ?? 'vs last month'}</span>
+        </p>
+      )}
+      {!delta && (sub || trendLabel) && (
         <p className={cn('text-[11px] mt-1.5 flex items-center gap-1',
           trend === 'up' ? 'text-red-400' : trend === 'down' ? 'text-emerald-400' : ''
         )} style={{ color: !trend ? 'var(--text-3)' : undefined }}>
@@ -173,7 +195,7 @@ export function AmberButton({ children, onClick, className, disabled }: {
         'hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed',
         className,
       )}
-      style={{ background: 'var(--amber)', color: '#000' }}
+      style={{ background: 'var(--indigo)', color: '#fff' }}
     >
       {children}
     </button>

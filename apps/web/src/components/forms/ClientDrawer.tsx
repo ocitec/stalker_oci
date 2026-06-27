@@ -86,7 +86,7 @@ export function ClientDrawer({ clientId, onClose, onViewInvoice }: Props) {
           style={{ background: 'var(--bg-1)', borderBottom: '1px solid var(--border)' }}
         >
           <div className="flex items-center gap-2">
-            <Building2 size={15} style={{ color: 'var(--amber)' }} />
+            <Building2 size={15} style={{ color: 'var(--indigo-2)' }} />
             <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
               {client?.name ?? 'Client Detail'}
             </span>
