@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Users, Plus, X, UserCheck, UserX, Mail, ChevronDown } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -12,10 +12,10 @@ import { fmtDate, fmtRelative } from '@/lib/utils';
 type UserRole = 'ADMIN' | 'CFO' | 'FINANCE' | 'SALES';
 
 const ROLE_META: Record<UserRole, { label: string; color: string; bg: string; desc: string }> = {
-  ADMIN:   { label: 'Admin',   color: '#F43F5E', bg: 'rgba(244,63,94,0.1)',   desc: 'Full access including user management' },
+  ADMIN:   { label: 'Admin',   color: '#EF4444', bg: 'rgba(239,68,68,0.1)',   desc: 'Full access including user management' },
   CFO:     { label: 'CFO',     color: '#F59E0B', bg: 'rgba(245,158,11,0.1)',  desc: 'All reports + block/unblock clients' },
-  FINANCE: { label: 'Finance', color: '#3B82F6', bg: 'rgba(59,130,246,0.1)',  desc: 'Create invoices, log follow-ups' },
-  SALES:   { label: 'Sales',   color: '#10B981', bg: 'rgba(16,185,129,0.1)',  desc: 'Read-only access' },
+  FINANCE: { label: 'Finance', color: '#6366F1', bg: 'rgba(99,102,241,0.1)',  desc: 'Create invoices, log follow-ups' },
+  SALES:   { label: 'Sales',   color: '#22C55E', bg: 'rgba(34,197,94,0.1)',   desc: 'Read-only access' },
 };
 
 const usersApi = {
@@ -23,7 +23,7 @@ const usersApi = {
   deactivate: (id: string)                   => api.patch(`/users/${id}/deactivate`),
   activate:   (id: string)                   => api.patch(`/users/${id}/activate`),
   invite:     (d: { name: string; email: string; role: UserRole }) => api.post('/users/invite', d),
-  updateRole: (id: string, role: UserRole)   => api.patch(`/users/${id}/role`, { role }),
+  updateRole: (id: string, role: UserRole)   => api.patch(`/users/${id}/role`, { role }), 
 };
 
 // ── Invite Modal — rendered through a portal so it always overlays correctly ──
@@ -138,9 +138,12 @@ function InviteModal({ open, onClose }: { open: boolean; onClose: () => void }) 
 }
 
 // ── Role change dropdown ──────────────────────────────────────────────────────
+// Rendered through a portal so it escapes the table card's overflow:hidden
 function RoleDropdown({ userId, currentRole }: { userId: string; currentRole: UserRole }) {
-  const qc     = useQueryClient();
+  const qc         = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [pos,  setPos]  = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const changeRole = useMutation({
     mutationFn: (role: UserRole) => usersApi.updateRole(userId, role),
@@ -152,45 +155,62 @@ function RoleDropdown({ userId, currentRole }: { userId: string; currentRole: Us
     onError: (e: any) => toast.error(e.response?.data?.message ?? 'Failed to update role'),
   });
 
+  function handleOpen() {
+    if (triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left });
+    }
+    setOpen(v => !v);
+  }
+
   const meta = ROLE_META[currentRole];
 
+  const menu = open ? (
+    <>
+      <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+      <div
+        className="fixed z-50 rounded-lg overflow-hidden"
+        style={{
+          top: pos.top,
+          left: pos.left,
+          background: 'var(--bg-2)',
+          border: '1px solid var(--border)',
+          width: 160,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+        }}
+      >
+        {(Object.keys(ROLE_META) as UserRole[]).map(r => {
+          const m = ROLE_META[r];
+          return (
+            <button
+              key={r}
+              onClick={() => changeRole.mutate(r)}
+              disabled={r === currentRole || changeRole.isPending}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs transition-all hover:opacity-80 disabled:opacity-40"
+              style={{ background: r === currentRole ? 'var(--bg-3)' : 'transparent' }}
+            >
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: m.color }} />
+              <span style={{ color: r === currentRole ? m.color : 'var(--text-2)' }}>{m.label}</span>
+              {r === currentRole && <span className="text-[9px] ml-auto" style={{ color: 'var(--text-3)' }}>current</span>}
+            </button>
+          );
+        })}
+      </div>
+    </>
+  ) : null;
+
   return (
-    <div className="relative">
+    <div>
       <button
-        onClick={() => setOpen(v => !v)}
+        ref={triggerRef}
+        onClick={handleOpen}
         className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-all hover:opacity-80"
         style={{ background: meta.bg, color: meta.color }}
       >
         {meta.label}
         <ChevronDown size={9} />
       </button>
-      {open && (
-        <>
-          {/* Click-outside backdrop */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            className="absolute right-0 mt-1 rounded-lg overflow-hidden z-50"
-            style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', width: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
-          >
-            {(Object.keys(ROLE_META) as UserRole[]).map(r => {
-              const m = ROLE_META[r];
-              return (
-                <button
-                  key={r}
-                  onClick={() => changeRole.mutate(r)}
-                  disabled={r === currentRole || changeRole.isPending}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs transition-all hover:opacity-80 disabled:opacity-40"
-                  style={{ background: r === currentRole ? 'var(--bg-3)' : 'transparent' }}
-                >
-                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: m.color }} />
-                  <span style={{ color: r === currentRole ? m.color : 'var(--text-2)' }}>{m.label}</span>
-                  {r === currentRole && <span className="text-[9px] ml-auto" style={{ color: 'var(--text-3)' }}>current</span>}
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
+      {typeof window !== 'undefined' && createPortal(menu, document.body)}
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/lib/store/auth.store';
@@ -91,9 +92,14 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="text-[11px] block mb-1.5 font-medium" style={{ color: 'var(--text-3)' }}>
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[11px] font-medium" style={{ color: 'var(--text-3)' }}>
+                  Password
+                </label>
+                <Link href={"/forgot-password" as any} className="text-[11px] transition-all hover:opacity-70" style={{ color: 'var(--indigo-2)' }}>
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <input
                   type={showPass ? 'text' : 'password'}

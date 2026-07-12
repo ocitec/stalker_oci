@@ -28,6 +28,7 @@ import type {
   NewClientOnboardedPayload,
   WelcomeUserPayload,
   RoleChangedPayload,
+  PasswordResetPayload,
 } from '../email/email.types';
 
 @Processor('emails')
@@ -365,6 +366,19 @@ export class EmailsProcessor {
       jobName: EmailJobName.ROLE_CHANGED,
       idempotencyKey: `${EmailJobName.ROLE_CHANGED}:${p.userId}:${p.newRole}`,
       metadata: { userId: p.userId, newRole: p.newRole },
+    });
+  }
+
+  // ── Operational: Password Reset ───────────────────────────────────────────
+  @Process(EmailJobName.PASSWORD_RESET)
+  async handlePasswordReset(job: Job<PasswordResetPayload>) {
+    const p = job.data;
+    if (!p.userEmail) return;
+    const { subject, html } = this.templates.passwordReset(p);
+    await this.emailService.send({
+      to: p.userEmail, subject, html,
+      jobName: EmailJobName.PASSWORD_RESET,
+      metadata: { userId: p.userId },
     });
   }
 

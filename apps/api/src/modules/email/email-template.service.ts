@@ -21,6 +21,7 @@ import {
   NewClientOnboardedPayload,
   WelcomeUserPayload,
   RoleChangedPayload,
+  PasswordResetPayload,
 } from './email.types';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -648,10 +649,29 @@ export class EmailTemplateService {
         ['Email', `<code style="font-family:${C.mono};color:${C.amber};">${p.userEmail}</code>`],
         ['Role', `<strong style="color:${C.blue};">${p.role}</strong>`],
         ['Organisation', `<span style="color:${C.textSecondary};">${p.organizationName}</span>`],
+        ...(p.tempPassword ? [['Temp Password', `<code style="font-family:${C.mono};color:${C.green};letter-spacing:0.08em;">${p.tempPassword}</code>`] as [string, string]] : []),
       ])}
+      ${p.tempPassword ? infoBox('This is a one-time temporary password. Please log in and change it immediately.', 'amber') : ''}
       ${infoBox(`<strong>Your Role:</strong> ${roleDesc[p.role] || p.role}`, 'blue')}
       ${ctaButton('Log In to Dashboard', `${this.dashboardUrl}/login`, 'amber')}`;
     return { subject, html: baseLayout(content, `Welcome to STALKER — your ${p.role} account is ready`) };
+  }
+
+  // ── Operational: Password Reset ──────────────────────────────────────────
+  passwordReset(p: PasswordResetPayload): { subject: string; html: string } {
+    const resetUrl = `${this.dashboardUrl}/reset-password?token=${p.resetToken}`;
+    const subject  = 'Reset your STALKER password';
+    const content  = `
+      ${badge('PASSWORD RESET', 'amber', '🔐')}
+      ${headline('Reset Your Password', `A password reset was requested for your STALKER account at ${p.organizationName}.`)}
+      ${detailTable([
+        ['Account',  `<strong style="color:${C.textPrimary};">${p.userName}</strong>`],
+        ['Email',    `<code style="font-family:${C.mono};color:${C.amber};">${p.userEmail}</code>`],
+        ['Expires',  `<span style="color:${C.textSecondary};">${fmtDateTime(p.expiresAt)} — valid for 2 hours</span>`],
+      ])}
+      ${infoBox('If you did not request a password reset, you can safely ignore this email. Your password will not change and this link will expire automatically.', 'amber')}
+      ${ctaButton('Reset My Password', resetUrl, 'amber')}`;
+    return { subject, html: baseLayout(content, 'Reset your STALKER account password — link expires in 2 hours') };
   }
 
   // ── Operational: Role Changed ─────────────────────────────────────────────

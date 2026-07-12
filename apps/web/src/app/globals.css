@@ -139,6 +139,10 @@ html, body {
 /* ── Number / monospace font ──────────────────────────────────────────────── */
 .mono { font-family: var(--font-geist-mono), 'SF Mono', monospace; }
 
+/* ── Responsive utilities ─────────────────────────────────────────────────── */
+/* Tables that need horizontal scroll on mobile */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
 /* ── Card ─────────────────────────────────────────────────────────────────── */
 .card {
   background:    var(--bg-1);

@@ -80,12 +80,34 @@ api.interceptors.response.use(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const authApi = {
-  login:   (credentials: { email: string; password: string }) =>
+  login:          (credentials: { email: string; password: string }) =>
     api.post('/auth/login', credentials),
-  register:(data: any) => api.post('/auth/register', data),
-  refresh: (refreshToken: string) => api.post('/auth/refresh', { refreshToken }),
-  logout:  (refreshToken: string) => api.post('/auth/logout', { refreshToken }),
-  me:      () => api.get('/auth/me'),
+  register:       (data: any) => api.post('/auth/register', data),
+  refresh:        (refreshToken: string) => api.post('/auth/refresh', { refreshToken }),
+  logout:         (refreshToken: string) => api.post('/auth/logout', { refreshToken }),
+  me:             () => api.get('/auth/me'),
+  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
+  resetPassword:  (token: string, password: string) =>
+    api.post('/auth/reset-password', { token, password }),
+};
+
+export const profileApi = {
+  get:            ()                                                 => api.get('/users/me/profile'),
+  update:         (data: { name?: string; email?: string })        => api.patch('/users/me/profile', data),
+  changePassword: (currentPassword: string, newPassword: string)   =>
+    api.patch('/users/me/password', { currentPassword, newPassword }),
+  activity:       (page = 1, limit = 20)                           =>
+    api.get('/users/me/activity', { params: { page, limit } }),
+};
+
+export const reportsApi = {
+  invoices:    (params?: any) => api.get('/reports/invoices',    { params }),
+  collections: (params?: any) => api.get('/reports/collections', { params }),
+  clients:     (params?: any) => api.get('/reports/clients',     { params }),
+  exportUrl:   (type: string, params?: any) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'}/reports/${type}/export${qs}`;
+  },
 };
 
 export const clientsApi = {

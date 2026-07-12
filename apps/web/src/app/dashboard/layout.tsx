@@ -52,14 +52,14 @@ function HydrationSkeleton() {
         </div>
 
         {/* Page content skeleton */}
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="space-y-5">
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="skeleton h-24 rounded-xl" />
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="skeleton h-56 rounded-xl" />
               <div className="skeleton h-56 rounded-xl" />
             </div>
@@ -128,8 +128,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const refreshToken    = useAuthStore(s => s.refreshToken);
   const clearAuth       = useAuthStore(s => s.clearAuth);
 
-  const [showWarning, setShowWarning] = useState(false);
-  const [countdown,   setCountdown]   = useState(WARNING_SECS);
+  const [showWarning,  setShowWarning]  = useState(false);
+  const [countdown,    setCountdown]    = useState(WARNING_SECS);
+  const [sidebarOpen,  setSidebarOpen]  = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopCountdown = useCallback(() => {
@@ -192,10 +193,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg-0)' }}>
-      <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <Topbar />
-        <main className="flex-1 overflow-y-auto p-6">
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+        <Topbar onMenuToggle={() => setSidebarOpen(v => !v)} />
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           {children}
         </main>
       </div>

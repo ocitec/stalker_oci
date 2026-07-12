@@ -1,6 +1,6 @@
 import {
   Injectable, UnauthorizedException, ConflictException,
-  BadRequestException, Logger,
+  BadRequestException, Logger, InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
@@ -8,7 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { addDays } from 'date-fns';
+import { addDays, addHours } from 'date-fns';
 import { PrismaService } from '../../config/prisma.service';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
@@ -97,6 +97,7 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.saveRefreshToken(user.id, tokens.refreshToken);
+    await this.writeAuditLog(user.id, 'LOGIN', 'User', user.id);
 
     this.logger.log(`User logged in: ${user.email} from ${ipAddress}`);
 
@@ -131,6 +132,73 @@ export class AuthService {
     );
     await this.saveRefreshToken(tokenRecord.user.id, tokens.refreshToken);
     return tokens;
+  }
+
+  // ── Forgot Password ───────────────────────────
+  async forgotPassword(email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: { organization: { select: { name: true } } },
+    });
+
+    const safeResponse = { message: 'If that email is registered, a reset link has been sent.' };
+    if (!user || !user.isActive) return safeResponse;
+
+    await this.prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data:  { usedAt: new Date() },
+    });
+
+    const token     = uuidv4();
+    const expiresAt = addHours(new Date(), 2);
+
+    await this.prisma.passwordResetToken.create({
+      data: { token, userId: user.id, expiresAt },
+    });
+
+    await this.emailsQueue.add(
+      EmailJobName.PASSWORD_RESET,
+      {
+        userId:           user.id,
+        userName:         user.name,
+        userEmail:        user.email,
+        resetToken:       token,
+        expiresAt:        expiresAt.toISOString(),
+        organizationName: (user as any).organization?.name ?? '',
+      },
+      { jobId: `${EmailJobName.PASSWORD_RESET}:${user.id}:${Date.now()}` },
+    );
+
+    await this.writeAuditLog(user.id, 'PASSWORD_RESET_REQUESTED', 'User', user.id);
+    this.logger.log(`Password reset requested for: ${email}`);
+    return safeResponse;
+  }
+
+  // ── Reset Password ────────────────────────────
+  async resetPassword(token: string, newPassword: string) {
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { token },
+      include: { user: true },
+    });
+
+    if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+      throw new BadRequestException('This reset link is invalid or has expired.');
+    }
+    if (!resetToken.user.isActive) {
+      throw new BadRequestException('This account has been deactivated.');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
+      this.prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { usedAt: new Date() } }),
+      this.prisma.refreshToken.deleteMany({ where: { userId: resetToken.userId } }),
+    ]);
+
+    await this.writeAuditLog(resetToken.userId, 'PASSWORD_RESET_COMPLETED', 'User', resetToken.userId);
+    this.logger.log(`Password reset completed for user: ${resetToken.userId}`);
+    return { message: 'Password has been reset. Please log in with your new password.' };
   }
 
   // ── Logout ────────────────────────────────────
@@ -170,5 +238,13 @@ export class AuthService {
         expiresAt: addDays(new Date(), 7),
       },
     });
+  }
+
+  private async writeAuditLog(userId: string | null, action: string, entity: string, entityId?: string) {
+    try {
+      await this.prisma.auditLog.create({
+        data: { userId, action, entity, entityId: entityId ?? null },
+      });
+    } catch { /* non-fatal */ }
   }
 }

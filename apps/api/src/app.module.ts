@@ -17,6 +17,7 @@ import { AlertsModule } from './modules/alerts/alerts.module';
 import { SlaModule } from './modules/sla/sla.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { HealthModule } from './modules/health/health.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 import {
   appConfig,
@@ -83,6 +84,7 @@ import {
     AlertsModule,
     SlaModule,
     DashboardModule,
+    ReportsModule,
     HealthModule,                    // ← GET /health + GET /health/ready
   ],
   providers: [

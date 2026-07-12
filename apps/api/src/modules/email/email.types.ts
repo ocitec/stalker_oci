@@ -27,6 +27,7 @@ export const EmailJobName = {
   NEW_CLIENT_ONBOARDED:     'send-new-client-onboarded',
   WELCOME_USER:             'send-welcome-user',
   ROLE_CHANGED:             'send-role-changed',
+  PASSWORD_RESET:           'send-password-reset',
 } as const;
 
 export type EmailJobNameValue = (typeof EmailJobName)[keyof typeof EmailJobName];
@@ -221,6 +222,7 @@ export interface WelcomeUserPayload {
   userEmail: string;
   role: string;
   organizationName: string;
+  tempPassword?: string;
 }
 
 export interface RoleChangedPayload {
@@ -229,6 +231,15 @@ export interface RoleChangedPayload {
   userEmail: string;
   previousRole: string;
   newRole: string;
+  organizationName: string;
+}
+
+export interface PasswordResetPayload {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  resetToken: string;
+  expiresAt: string;
   organizationName: string;
 }
 
