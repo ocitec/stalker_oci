@@ -9,6 +9,7 @@ import {
   Clock, BarChart3, AlertTriangle, Sparkles,
   LogOut, Settings, ChevronRight, Users, Sun, Moon,
   User, BarChart2, X,
+  ShoppingCart, ShieldCheck, ArrowLeftRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/store/auth.store';
@@ -21,6 +22,14 @@ const BASE_NAV_GROUPS = [
     items: [
       { href: '/dashboard',        icon: LayoutDashboard, label: 'Dashboard' },
       { href: '/dashboard/alerts', icon: Bell,            label: 'Alerts',    badge: 'alerts' },
+    ],
+  },
+  {
+    label: 'Governance',
+    items: [
+      { href: '/dashboard/sales',        icon: ShoppingCart,   label: 'Sales Requests' },
+      { href: '/dashboard/credit',       icon: ShieldCheck,    label: 'Credit Control' },
+      { href: '/dashboard/transactions', icon: ArrowLeftRight, label: 'Transaction Control' },
     ],
   },
   {

@@ -7,6 +7,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { PrismaModule } from './config/prisma.module';
+import { CommonModule } from './common/common.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ClientsModule } from './modules/clients/clients.module';
@@ -18,6 +19,12 @@ import { SlaModule } from './modules/sla/sla.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { HealthModule } from './modules/health/health.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { SalesModule } from './modules/sales/sales.module';
+import { CreditModule } from './modules/credit/credit.module';
+import { TransactionsModule } from './modules/transactions/transactions.module';
+import { SuppliersModule } from './modules/suppliers/suppliers.module';
+import { AccountsModule } from './modules/accounts/accounts.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 
 import {
   appConfig,
@@ -73,6 +80,7 @@ import {
 
     // ── Core Database ─────────────────────────────────────────────────────────
     PrismaModule,
+    CommonModule,                    // ← global AuditService + ExposureService
 
     // ── Feature Modules ───────────────────────────────────────────────────────
     AuthModule,
@@ -85,6 +93,17 @@ import {
     SlaModule,
     DashboardModule,
     ReportsModule,
+
+    // ── Financial Control Chain (Phase 1: Sales → Credit → Transaction) ───────
+    SalesModule,
+    CreditModule,
+    TransactionsModule,
+
+    // ── Payment Control (Phase 2: Supplier → Account → Payment → Replenishment)
+    SuppliersModule,
+    AccountsModule,
+    PaymentsModule,
+
     HealthModule,                    // ← GET /health + GET /health/ready
   ],
   providers: [

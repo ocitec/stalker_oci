@@ -7,13 +7,21 @@ datasource db {
 }
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  industry  String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  clients   Client[]
-  users     User[]
+  id             String          @id @default(cuid())
+  name           String
+  industry       String?
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  clients             Client[]
+  users               User[]
+  salesRequests       SalesRequest[]
+  creditRequests      CreditRequest[]
+  transactions        Transaction[]
+  suppliers           Supplier[]
+  operationalAccounts OperationalAccount[]
+  paymentRequests     PaymentRequest[]
+  replenishments      Replenishment[]
+  paymentExceptions   PaymentException[]
 
   @@index([name])
   @@map("organizations")
@@ -36,6 +44,18 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   organization        Organization   @relation(fields: [organizationId], references: [id])
+
+  salesRequests         SalesRequest[]
+  creditRequestsCreated CreditRequest[]       @relation("CreditCreatedBy")
+  creditDecisions       CreditRequest[]       @relation("CreditDecisionBy")
+  transactionsCreated   Transaction[]
+  transactionApprovals  TransactionApproval[]
+
+  paymentRequestsCreated  PaymentRequest[]   @relation("PaymentCreatedBy")
+  paymentRequestsApproved PaymentRequest[]   @relation("PaymentApprovedBy")
+  replenishmentsRequested Replenishment[]    @relation("ReplenishmentRequestedBy")
+  replenishmentDecisions  Replenishment[]    @relation("ReplenishmentDecisionBy")
+  paymentExceptionsResolved PaymentException[]
 
   @@index([email])
   @@index([organizationId])
@@ -76,6 +96,10 @@ model Client {
   organization           Organization   @relation(fields: [organizationId], references: [id])
   invoices               Invoice[]
   slaViolations          SlaViolation[]
+  salesRequests          SalesRequest[]
+  creditRequests         CreditRequest[]
+  transactions           Transaction[]
+  // Payment Control (Phase 2) has no direct Client relation; suppliers/accounts are org-scoped.
 
   @@index([organizationId])
   @@index([riskStatus])
@@ -299,4 +323,388 @@ model EmailLog {
   @@index([status])
   @@index([createdAt])
   @@map("email_logs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCIAL CONTROL CHAIN — Sales → Credit → Transaction Control (Phase 1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum SalesRequestStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CONVERTED
+  CANCELLED
+}
+
+enum CreditRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  ON_HOLD
+  EXPIRED
+}
+
+enum TransactionStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  DECLINED
+  ON_HOLD
+  CANCELLED
+}
+
+enum PaymentVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  PARTIALLY_PAID
+}
+
+enum FulfilmentStatus {
+  PENDING
+  PROCESSING
+  FULFILLED
+  PARTIALLY_FULFILLED
+  FAILED
+}
+
+enum ApprovalDecision {
+  APPROVED
+  DECLINED
+  ON_HOLD
+}
+
+/// Lite upstream Sales Request — origin of the control chain.
+model SalesRequest {
+  id              String             @id @default(cuid())
+  organizationId  String             @map("organization_id")
+  reference       String             @unique
+  clientId        String             @map("client_id")
+  title           String
+  description     String?
+  requestedAmount Decimal            @map("requested_amount") @db.Decimal(15, 2)
+  currency        String             @default("NGN")
+  status          SalesRequestStatus @default(DRAFT)
+  createdById     String?            @map("created_by_id")
+  submittedAt     DateTime?          @map("submitted_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  organization    Organization       @relation(fields: [organizationId], references: [id])
+  client          Client             @relation(fields: [clientId], references: [id])
+  createdBy       User?              @relation(fields: [createdById], references: [id])
+  creditRequests  CreditRequest[]
+  transactions    Transaction[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([status])
+  @@map("sales_requests")
+}
+
+/// Lite Credit Control assessment for an approved sales request.
+model CreditRequest {
+  id              String              @id @default(cuid())
+  organizationId  String              @map("organization_id")
+  reference       String              @unique
+  salesRequestId  String?             @map("sales_request_id")
+  clientId        String              @map("client_id")
+  requestedAmount Decimal             @map("requested_amount") @db.Decimal(15, 2)
+  approvedAmount  Decimal?            @map("approved_amount")  @db.Decimal(15, 2)
+  currency        String              @default("NGN")
+  status          CreditRequestStatus @default(PENDING)
+  comments        String?
+  decisionById    String?             @map("decision_by_id")
+  decisionAt      DateTime?           @map("decision_at")
+  createdById     String?             @map("created_by_id")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  organization    Organization        @relation(fields: [organizationId], references: [id])
+  client          Client              @relation(fields: [clientId], references: [id])
+  salesRequest    SalesRequest?       @relation(fields: [salesRequestId], references: [id])
+  decisionBy      User?               @relation("CreditDecisionBy", fields: [decisionById], references: [id])
+  createdBy       User?               @relation("CreditCreatedBy",  fields: [createdById], references: [id])
+  transactions    Transaction[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([status])
+  @@map("credit_requests")
+}
+
+/// Transaction Control — operational bridge between Credit Control and Payment Control.
+model Transaction {
+  id                      String                    @id @default(cuid())
+  organizationId          String                    @map("organization_id")
+  reference               String                    @unique
+  srfNumber               String?                   @unique @map("srf_number")
+  transactionDate         DateTime                  @default(now()) @map("transaction_date")
+
+  clientId                String                    @map("client_id")
+  clientCode              String?                   @map("client_code")
+  salesRequestId          String?                   @map("sales_request_id")
+  creditRequestId         String?                   @map("credit_request_id")
+
+  // ── Financial details ──
+  newTransactionValue     Decimal                   @map("new_transaction_value")     @db.Decimal(15, 2)
+  supplierCost            Decimal                   @default(0) @map("supplier_cost")  @db.Decimal(15, 2)
+  grossMargin             Decimal                   @default(0) @map("gross_margin")   @db.Decimal(15, 2)
+  profitPercentage        Decimal                   @default(0) @map("profit_percentage") @db.Decimal(6, 2)
+  currency                String                    @default("NGN")
+
+  // ── Exposure snapshot (computed at create/refresh) ──
+  creditLimit             Decimal                   @default(0) @map("credit_limit")               @db.Decimal(15, 2)
+  currentExposure         Decimal                   @default(0) @map("current_exposure")           @db.Decimal(15, 2)
+  postTransactionExposure Decimal                   @default(0) @map("post_transaction_exposure")  @db.Decimal(15, 2)
+  availableCredit         Decimal                   @default(0) @map("available_credit")           @db.Decimal(15, 2)
+  exceedsLimit            Boolean                   @default(false) @map("exceeds_limit")
+  clientEligible          Boolean                   @default(true)  @map("client_eligible")
+
+  // ── Payment verification ──
+  clientPaymentStatus     PaymentVerificationStatus @default(PENDING) @map("client_payment_status")
+  paymentVerified         Boolean                   @default(false)   @map("payment_verified")
+  paymentSource           String?                   @map("payment_source")
+  paymentDate             DateTime?                 @map("payment_date")
+
+  // ── Approval workflow ──
+  status                  TransactionStatus         @default(DRAFT)
+  approvalLevel           Int                       @default(0) @map("approval_level")
+  requiredApprovalLevel   Int                       @default(1) @map("required_approval_level")
+  currentApproverRole     UserRole?                 @map("current_approver_role")
+  approvalComments        String?                   @map("approval_comments")
+
+  // ── Service fulfilment ──
+  fulfilmentStatus        FulfilmentStatus          @default(PENDING) @map("fulfilment_status")
+
+  createdById             String?                   @map("created_by_id")
+  createdAt               DateTime                  @default(now()) @map("created_at")
+  updatedAt               DateTime                  @updatedAt @map("updated_at")
+
+  organization            Organization              @relation(fields: [organizationId], references: [id])
+  client                  Client                    @relation(fields: [clientId], references: [id])
+  salesRequest            SalesRequest?             @relation(fields: [salesRequestId], references: [id])
+  creditRequest           CreditRequest?            @relation(fields: [creditRequestId], references: [id])
+  createdBy               User?                     @relation(fields: [createdById], references: [id])
+  approvals               TransactionApproval[]
+  paymentRequests         PaymentRequest[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([status])
+  @@index([fulfilmentStatus])
+  @@index([transactionDate])
+  @@map("transactions")
+}
+
+/// Immutable approval-history entry for a transaction (multi-level workflow).
+model TransactionApproval {
+  id            String           @id @default(cuid())
+  transactionId String           @map("transaction_id")
+  level         Int
+  decision      ApprovalDecision
+  approverId    String?          @map("approver_id")
+  approverRole  UserRole?        @map("approver_role")
+  comments      String?
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  transaction   Transaction      @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  approver      User?            @relation(fields: [approverId], references: [id])
+
+  @@index([transactionId])
+  @@map("transaction_approvals")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYMENT CONTROL (Phase 2) — Supplier disbursement after transaction approval
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum PaymentRequestStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CHEQUE
+  CASH
+  CARD
+  MOBILE_MONEY
+  OTHER
+}
+
+enum ReplenishmentStatus {
+  PENDING
+  APPROVED
+  FUNDED
+  DECLINED
+}
+
+enum PaymentExceptionType {
+  PAYMENT_MISMATCH
+  DUPLICATE_PAYMENT
+  MISSING_CONFIRMATION
+  OVERPAYMENT
+  UNDERPAYMENT
+  CURRENCY_MISMATCH
+}
+
+enum PaymentExceptionStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
+/// Supplier master — the disbursement counterparty for payment requests.
+model Supplier {
+  id                String   @id @default(cuid())
+  organizationId    String   @map("organization_id")
+  name              String
+  code              String?  @unique
+  email             String?
+  phone             String?
+  bankName          String?  @map("bank_name")
+  bankAccountNumber String?  @map("bank_account_number")
+  bankAccountName   String?  @map("bank_account_name")
+  isActive          Boolean  @default(true) @map("is_active")
+  notes             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  organization      Organization     @relation(fields: [organizationId], references: [id])
+  paymentRequests   PaymentRequest[]
+
+  @@index([organizationId])
+  @@index([isActive])
+  @@map("suppliers")
+}
+
+/// Operational (disbursement) bank account with a live running balance.
+model OperationalAccount {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  accountNumber  String   @map("account_number")
+  bankName       String   @map("bank_name")
+  currency       String   @default("NGN")
+  currentBalance Decimal  @default(0) @map("current_balance") @db.Decimal(18, 2)
+  minimumBalance Decimal  @default(0) @map("minimum_balance") @db.Decimal(18, 2)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  paymentRequests PaymentRequest[]
+  replenishments  Replenishment[]
+
+  @@index([organizationId])
+  @@index([isActive])
+  @@map("operational_accounts")
+}
+
+/// Disbursement request against an approved transaction, paid to a supplier.
+model PaymentRequest {
+  id                   String               @id @default(cuid())
+  organizationId       String               @map("organization_id")
+  reference            String               @unique
+  transactionId        String               @map("transaction_id")
+  supplierId           String               @map("supplier_id")
+  operationalAccountId String?              @map("operational_account_id")
+  requestedAmount      Decimal              @map("requested_amount") @db.Decimal(18, 2)
+  currency             String               @default("NGN")
+  status               PaymentRequestStatus @default(DRAFT)
+
+  // Balance validation snapshot
+  accountBalanceAtRequest Decimal? @map("account_balance_at_request") @db.Decimal(18, 2)
+  replenishmentRequired   Boolean  @default(false) @map("replenishment_required")
+
+  // Processing / confirmation
+  paymentAmount         Decimal?       @map("payment_amount") @db.Decimal(18, 2)
+  paymentDate           DateTime?      @map("payment_date")
+  paymentMethod         PaymentMethod? @map("payment_method")
+  confirmationReference String?        @map("confirmation_reference")
+  confirmedAt           DateTime?      @map("confirmed_at")
+  dueDate               DateTime?      @map("due_date")
+
+  // Approval
+  approvedById     String?   @map("approved_by_id")
+  approvedAt       DateTime? @map("approved_at")
+  approvalComments String?   @map("approval_comments")
+
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization       Organization        @relation(fields: [organizationId], references: [id])
+  transaction        Transaction         @relation(fields: [transactionId], references: [id])
+  supplier           Supplier            @relation(fields: [supplierId], references: [id])
+  operationalAccount OperationalAccount? @relation(fields: [operationalAccountId], references: [id])
+  approvedBy         User?               @relation("PaymentApprovedBy", fields: [approvedById], references: [id])
+  createdBy          User?               @relation("PaymentCreatedBy",  fields: [createdById], references: [id])
+  exceptions         PaymentException[]
+
+  @@index([organizationId])
+  @@index([transactionId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("payment_requests")
+}
+
+/// Funding top-up for an operational account that fell below what payments need.
+model Replenishment {
+  id                   String              @id @default(cuid())
+  organizationId       String              @map("organization_id")
+  reference            String              @unique
+  operationalAccountId String              @map("operational_account_id")
+  requiredAmount       Decimal             @map("required_amount")  @db.Decimal(18, 2)
+  requestedAmount      Decimal             @map("requested_amount") @db.Decimal(18, 2)
+  approvedAmount       Decimal?            @map("approved_amount")  @db.Decimal(18, 2)
+  status               ReplenishmentStatus @default(PENDING)
+  notes                String?
+  requestedById        String?             @map("requested_by_id")
+  decisionById         String?             @map("decision_by_id")
+  decisionAt           DateTime?           @map("decision_at")
+  fundedAt             DateTime?           @map("funded_at")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  organization       Organization       @relation(fields: [organizationId], references: [id])
+  operationalAccount OperationalAccount @relation(fields: [operationalAccountId], references: [id])
+  requestedBy        User?              @relation("ReplenishmentRequestedBy", fields: [requestedById], references: [id])
+  decisionBy         User?              @relation("ReplenishmentDecisionBy",  fields: [decisionById], references: [id])
+
+  @@index([organizationId])
+  @@index([operationalAccountId])
+  @@index([status])
+  @@map("replenishments")
+}
+
+/// Auto-detected anomaly on a payment request (mismatch, duplicate, etc.).
+model PaymentException {
+  id               String                 @id @default(cuid())
+  organizationId   String                 @map("organization_id")
+  paymentRequestId String?                @map("payment_request_id")
+  type             PaymentExceptionType
+  status           PaymentExceptionStatus @default(OPEN)
+  detail           String?
+  resolvedById     String?                @map("resolved_by_id")
+  resolvedAt       DateTime?              @map("resolved_at")
+  createdAt        DateTime               @default(now()) @map("created_at")
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  paymentRequest PaymentRequest? @relation(fields: [paymentRequestId], references: [id], onDelete: Cascade)
+  resolvedBy     User?           @relation(fields: [resolvedById], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([type])
+  @@map("payment_exceptions")
 }
