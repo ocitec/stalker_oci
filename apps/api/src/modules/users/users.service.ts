@@ -16,7 +16,7 @@ export class UsersService {
   async findAll(organizationId: string) {
     return this.prisma.user.findMany({
       where: { organizationId },
-      select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, department: true, isActive: true, lastLoginAt: true, createdAt: true },
       orderBy: { name: 'asc' },
     });
   }
@@ -59,7 +59,7 @@ export class UsersService {
   }
 
   async invite(
-    dto: { name: string; email: string; role: string },
+    dto: { name: string; email: string; role: string; department?: string },
     organizationId: string,
   ) {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
@@ -74,8 +74,8 @@ export class UsersService {
     });
 
     const user = await this.prisma.user.create({
-      data: { name: dto.name, email: dto.email, passwordHash, role: dto.role as any, organizationId },
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      data: { name: dto.name, email: dto.email, passwordHash, role: dto.role as any, department: dto.department, organizationId },
+      select: { id: true, name: true, email: true, role: true, department: true, createdAt: true },
     });
 
     await this.emailsQueue.add(
@@ -111,7 +111,7 @@ export class UsersService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true, name: true, email: true, role: true,
+        id: true, name: true, email: true, role: true, department: true,
         isActive: true, lastLoginAt: true, createdAt: true,
         organization: { select: { id: true, name: true, industry: true } },
       },
@@ -120,7 +120,7 @@ export class UsersService {
     return user;
   }
 
-  async updateProfile(userId: string, dto: { name?: string; email?: string }) {
+  async updateProfile(userId: string, dto: { name?: string; email?: string; department?: string }) {
     if (dto.email) {
       const existing = await this.prisma.user.findFirst({
         where: { email: dto.email, id: { not: userId } },
@@ -129,8 +129,12 @@ export class UsersService {
     }
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data:  { ...(dto.name && { name: dto.name }), ...(dto.email && { email: dto.email }) },
-      select: { id: true, name: true, email: true, role: true },
+      data:  {
+        ...(dto.name       !== undefined && { name: dto.name }),
+        ...(dto.email      !== undefined && { email: dto.email }),
+        ...(dto.department !== undefined && { department: dto.department }),
+      },
+      select: { id: true, name: true, email: true, role: true, department: true },
     });
     await this.writeAuditLog(userId, 'PROFILE_UPDATED', 'User', userId, dto);
     return updated;

@@ -15,10 +15,38 @@ export interface ApprovalLevelRule {
   minValue: number;
 }
 
-export const APPROVAL_LADDER: ApprovalLevelRule[] = [
-  { level: 1, role: UserRole.FINANCE, minValue: 0 },
-  { level: 2, role: UserRole.CFO,     minValue: 1_000_000 },
-];
+/**
+ * Build the ladder from environment configuration so thresholds/roles are never
+ * hard-coded business rules. Two override mechanisms (both optional):
+ *
+ *   APPROVAL_LADDER_JSON — full ladder, e.g.
+ *     [{"level":1,"role":"FINANCE","minValue":0},{"level":2,"role":"CFO","minValue":1000000}]
+ *   APPROVAL_L2_THRESHOLD — just the value at which a second (CFO) approval kicks in.
+ *
+ * Falls back to a sensible default (FINANCE always; +CFO at/above ₦1,000,000).
+ */
+function buildLadder(): ApprovalLevelRule[] {
+  const raw = process.env.APPROVAL_LADDER_JSON?.trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as ApprovalLevelRule[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed
+          .map(r => ({ level: Number(r.level), role: r.role as UserRole, minValue: Number(r.minValue) }))
+          .sort((a, b) => a.level - b.level);
+      }
+    } catch {
+      // Malformed JSON → fall through to threshold/default.
+    }
+  }
+  const l2Threshold = Number(process.env.APPROVAL_L2_THRESHOLD ?? 1_000_000);
+  return [
+    { level: 1, role: UserRole.FINANCE, minValue: 0 },
+    { level: 2, role: UserRole.CFO,     minValue: l2Threshold },
+  ];
+}
+
+export const APPROVAL_LADDER: ApprovalLevelRule[] = buildLadder();
 
 /** Role seniority — a more senior role may act on any junior level. */
 const ROLE_SENIORITY: Record<UserRole, number> = {

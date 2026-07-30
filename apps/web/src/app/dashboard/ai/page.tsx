@@ -104,7 +104,7 @@ export default function AiPage() {
         </GhostButton>
       </div>
 
-      <div className="grid grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
         {/* Left: Insights + CFO summary */}
         <div className="col-span-1 space-y-3">
@@ -214,7 +214,8 @@ export default function AiPage() {
                 No results for "{search}"
               </div>
             ) : (
-              <table className="w-full text-xs">
+              <div className="table-wrap">
+              <table className="w-full text-xs" style={{ minWidth: 820 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
                     {['Client','Sector','PDI','Late Prob.','Exp. Delay','Risk Score','Recommendation','Feedback'].map(h => (
@@ -282,6 +283,7 @@ export default function AiPage() {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
 
             {/* Pagination */}

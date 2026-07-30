@@ -5,6 +5,8 @@ import { Prisma, TransactionStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { AuditService } from '../../common/services/audit.service';
 import { ExposureService } from '../../common/services/exposure.service';
+import { NotificationService } from '../../common/notifications/notification.service';
+import { InvoicesService } from '../invoices/invoices.service';
 import { makeReference } from '../../common/utils/reference.util';
 import {
   requiredApprovalLevels, roleForLevel, nextApproverRole, canApproveLevel,
@@ -22,9 +24,11 @@ export class TransactionsService {
   private readonly logger = new Logger(TransactionsService.name);
 
   constructor(
-    private readonly prisma:   PrismaService,
-    private readonly audit:    AuditService,
-    private readonly exposure: ExposureService,
+    private readonly prisma:       PrismaService,
+    private readonly audit:        AuditService,
+    private readonly exposure:     ExposureService,
+    private readonly notify:       NotificationService,
+    private readonly invoices:     InvoicesService,
   ) {}
 
   // ── CREATE (from an APPROVED credit request) ─────────────────────────────
@@ -207,6 +211,15 @@ export class TransactionsService {
       userId, action: 'TRANSACTION_SUBMITTED', entity: 'Transaction', entityId: id,
       oldValues: { status: txn.status }, newValues: { status: 'PENDING_REVIEW', requiredApprovalLevel: required },
     });
+    await this.notify.notify({
+      organizationId, audience: 'finance', event: 'txn-submitted',
+      badgeLabel: 'AWAITING APPROVAL', badgeVariant: 'amber',
+      heading: `Transaction ${txn.reference} awaits approval`,
+      subheading: `A ${required}-level approval is required before this transaction can proceed.`,
+      rows: [['Reference', txn.reference], ['Value', this.money(Number(txn.newTransactionValue), txn.currency)], ['Approval levels', String(required)]],
+      ctaLabel: 'Review transaction', ctaPath: '/dashboard/transactions',
+      idempotencyKey: `txn-submitted:${id}`,
+    });
     this.logger.log(`Transaction ${txn.reference} submitted for ${required}-level review`);
     return this.serialize(updated);
   }
@@ -258,6 +271,39 @@ export class TransactionsService {
       oldValues: { status: txn.status, approvalLevel: txn.approvalLevel },
       newValues: { status: newStatus, approvalLevel: nextLevel, level: nextLevel },
     });
+
+    if (isFinal) {
+      // Final approval → generate the client receivable (links the chain to
+      // the receivables/collections engine) and notify finance.
+      const receivable = await this.generateReceivable(updated, userId, organizationId);
+      await this.notify.notify({
+        organizationId, audience: 'finance', event: 'txn-approved',
+        badgeLabel: 'APPROVED', badgeVariant: 'green',
+        heading: `Transaction ${txn.reference} approved`,
+        subheading: receivable
+          ? `A receivable invoice (${receivable.invoiceNumber}) has been raised for the client.`
+          : 'The transaction is fully approved.',
+        rows: [
+          ['Reference', txn.reference],
+          ['Value', this.money(value, txn.currency)],
+          ...(receivable ? [['Receivable', receivable.invoiceNumber] as [string, string]] : []),
+        ],
+        ctaLabel: 'View transaction', ctaPath: '/dashboard/transactions',
+        idempotencyKey: `txn-approved:${id}`,
+      });
+    } else {
+      const nextRole = nextApproverRole(nextLevel, value);
+      await this.notify.notify({
+        organizationId, audience: nextRole === 'CFO' ? 'cfo' : 'finance', event: 'txn-approval-advanced',
+        badgeLabel: 'AWAITING APPROVAL', badgeVariant: 'amber',
+        heading: `Transaction ${txn.reference} needs level ${nextLevel + 1} approval`,
+        subheading: `Level ${nextLevel} approved${nextRole ? ` — ${nextRole} sign-off is required next.` : '.'}`,
+        rows: [['Reference', txn.reference], ['Value', this.money(value, txn.currency)]],
+        ctaLabel: 'Review transaction', ctaPath: '/dashboard/transactions',
+        idempotencyKey: `txn-approval:${id}:${nextLevel}`,
+      });
+    }
+
     this.logger.log(`Transaction ${txn.reference} approved at level ${nextLevel}/${txn.requiredApprovalLevel} → ${newStatus}`);
     return this.serialize(updated);
   }
@@ -333,6 +379,11 @@ export class TransactionsService {
       oldValues: { clientPaymentStatus: txn.clientPaymentStatus, paymentVerified: txn.paymentVerified },
       newValues: { clientPaymentStatus: dto.clientPaymentStatus, paymentVerified: verified },
     });
+
+    // Verified client payment = collection → settle the linked receivable invoice.
+    if (verified && txn.invoiceId) {
+      await this.settleReceivable(txn.invoiceId, organizationId, userId, txn.reference);
+    }
     return this.serialize(updated);
   }
 
@@ -471,8 +522,75 @@ export class TransactionsService {
       userId, action: opts.action, entity: 'Transaction', entityId: id,
       oldValues: { status: txn.status }, newValues: { status: opts.to },
     });
+    await this.notify.notify({
+      organizationId, audience: 'finance', event: `txn-${opts.decision.toLowerCase()}`,
+      badgeLabel: opts.to === 'DECLINED' ? 'DECLINED' : 'ON HOLD',
+      badgeVariant: opts.to === 'DECLINED' ? 'red' : 'amber',
+      heading: `Transaction ${txn.reference} ${opts.to === 'DECLINED' ? 'declined' : 'placed on hold'}`,
+      subheading: opts.dto.comments || undefined,
+      rows: [['Reference', txn.reference]],
+      ctaLabel: 'View transaction', ctaPath: '/dashboard/transactions',
+      idempotencyKey: `txn-${opts.decision}:${id}`,
+    });
     this.logger.log(`Transaction ${txn.reference}: ${txn.status} → ${opts.to}`);
     return this.serialize(updated);
+  }
+
+  /** Auto-generate the client receivable invoice for a fully-approved transaction. */
+  private async generateReceivable(txn: any, userId: string, organizationId: string) {
+    if (txn.invoiceId) return null;
+    try {
+      const invoiceNumber = `RCV-${txn.reference}`;
+      const receivable = await this.invoices.create(
+        {
+          clientId:      txn.clientId,
+          invoiceNumber,
+          invoiceAmount: Number(txn.newTransactionValue),
+          currency:      txn.currency,
+          notes:         `Auto-generated receivable for transaction ${txn.reference}`,
+        } as any,
+        organizationId,
+      );
+      await this.prisma.transaction.update({ where: { id: txn.id }, data: { invoiceId: receivable.id } });
+      await this.audit.record({
+        userId, action: 'TRANSACTION_RECEIVABLE_GENERATED', entity: 'Transaction', entityId: txn.id,
+        newValues: { invoiceId: receivable.id, invoiceNumber },
+      });
+      this.logger.log(`Receivable ${invoiceNumber} generated for transaction ${txn.reference}`);
+      return receivable;
+    } catch (err) {
+      this.logger.warn(`Receivable generation failed for ${txn.reference}: ${String(err)}`);
+      return null;
+    }
+  }
+
+  /** Settle the linked receivable when the client payment is verified (collection). */
+  private async settleReceivable(invoiceId: string, organizationId: string, userId: string, txnRef: string) {
+    try {
+      const inv = await this.prisma.invoice.findFirst({ where: { id: invoiceId, client: { organizationId } } });
+      if (!inv || inv.status === 'PAID' || inv.status === 'CANCELLED') return;
+      await this.invoices.markAsPaid(invoiceId, {} as any, organizationId, userId);
+      await this.audit.record({
+        userId, action: 'TRANSACTION_RECEIVABLE_SETTLED', entity: 'Invoice', entityId: invoiceId,
+        newValues: { settledFrom: txnRef },
+      });
+      await this.notify.notify({
+        organizationId, audience: 'finance', event: 'txn-collected',
+        badgeLabel: 'COLLECTED', badgeVariant: 'green',
+        heading: `Client payment verified for ${txnRef}`,
+        subheading: 'The linked receivable has been marked as paid.',
+        rows: [['Transaction', txnRef]],
+        ctaLabel: 'View invoices', ctaPath: '/dashboard/invoices',
+        idempotencyKey: `txn-collected:${invoiceId}`,
+      });
+      this.logger.log(`Receivable ${invoiceId} settled from transaction ${txnRef}`);
+    } catch (err) {
+      this.logger.warn(`Receivable settlement failed for ${txnRef}: ${String(err)}`);
+    }
+  }
+
+  private money(n: number, ccy = 'NGN') {
+    return `${ccy} ${Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
   private countMap(groups: Array<Record<string, any>>, key: string): Record<string, number> {

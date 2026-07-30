@@ -78,7 +78,7 @@ export function ClientDrawer({ clientId, onClose, onViewInvoice }: Props) {
     <div className="drawer-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div
         className="animate-slide-right h-full flex flex-col"
-        style={{ width: 480, background: 'var(--bg-1)', borderLeft: '1px solid var(--border)', overflowY: 'auto' }}
+        style={{ width: 480, maxWidth: '100%', background: 'var(--bg-1)', borderLeft: '1px solid var(--border)', overflowY: 'auto' }}
       >
         {/* Header */}
         <div

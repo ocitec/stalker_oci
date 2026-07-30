@@ -4,6 +4,7 @@ import {
 import { Prisma, PaymentRequestStatus, PaymentExceptionType } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { AuditService } from '../../common/services/audit.service';
+import { NotificationService } from '../../common/notifications/notification.service';
 import { makeReference } from '../../common/utils/reference.util';
 import {
   CreatePaymentRequestDto, ApprovePaymentDto, ProcessPaymentDto,
@@ -21,7 +22,12 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit:  AuditService,
+    private readonly notify: NotificationService,
   ) {}
+
+  private money(n: number, ccy = 'NGN') {
+    return `${ccy} ${Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
 
   // ── CREATE (from an APPROVED transaction) ────────────────────────────────
   async create(dto: CreatePaymentRequestDto, userId: string, organizationId: string) {
@@ -140,7 +146,16 @@ export class PaymentsService {
   async submit(id: string, organizationId: string, userId: string) {
     const pr = await this.get(id, organizationId);
     this.assertStatus(pr, ['DRAFT'], 'submit');
-    return this.transition(id, 'PENDING_APPROVAL', 'PAYMENT_REQUEST_SUBMITTED', pr, userId);
+    const res = await this.transition(id, 'PENDING_APPROVAL', 'PAYMENT_REQUEST_SUBMITTED', pr, userId);
+    await this.notify.notify({
+      organizationId, audience: 'cfo', event: 'payment-submitted',
+      badgeLabel: 'PAYMENT APPROVAL', badgeVariant: 'amber',
+      heading: `Payment request ${pr.reference} awaits approval`,
+      rows: [['Reference', pr.reference], ['Amount', this.money(Number(pr.requestedAmount), pr.currency)]],
+      ctaLabel: 'Review payments', ctaPath: '/dashboard/payments',
+      idempotencyKey: `payment-submitted:${id}`,
+    });
+    return res;
   }
 
   /** Approve — requires the funding account to cover the request (balance verified). */
@@ -171,6 +186,15 @@ export class PaymentsService {
     await this.audit.record({
       userId, action: 'PAYMENT_REQUEST_APPROVED', entity: 'PaymentRequest', entityId: id,
       oldValues: { status: 'PENDING_APPROVAL' }, newValues: { status: 'APPROVED' },
+    });
+    await this.notify.notify({
+      organizationId, audience: 'finance', event: 'payment-approved',
+      badgeLabel: 'PAYMENT APPROVED', badgeVariant: 'green',
+      heading: `Payment request ${pr.reference} approved`,
+      subheading: 'Ready for disbursement.',
+      rows: [['Reference', pr.reference], ['Amount', this.money(amount, pr.currency)]],
+      ctaLabel: 'Process payment', ctaPath: '/dashboard/payments',
+      idempotencyKey: `payment-approved:${id}`,
     });
     return this.serialize(updated);
   }
@@ -244,6 +268,14 @@ export class PaymentsService {
       userId, action: 'PAYMENT_REQUEST_CONFIRMED', entity: 'PaymentRequest', entityId: id,
       oldValues: { status: 'PROCESSING' }, newValues: { status: 'PAID' },
     });
+    await this.notify.notify({
+      organizationId, audience: 'finance', event: 'payment-confirmed',
+      badgeLabel: 'PAYMENT CONFIRMED', badgeVariant: 'green',
+      heading: `Payment ${pr.reference} confirmed`,
+      rows: [['Reference', pr.reference], ['Confirmation', dto.confirmationReference]],
+      ctaLabel: 'View payments', ctaPath: '/dashboard/payments',
+      idempotencyKey: `payment-confirmed:${id}`,
+    });
     return this.serialize(updated);
   }
 
@@ -269,6 +301,15 @@ export class PaymentsService {
       userId, action: 'PAYMENT_REQUEST_FAILED', entity: 'PaymentRequest', entityId: id,
       newValues: { refunded: refund, reason: dto.reason },
     });
+    await this.notify.notify({
+      organizationId, audience: 'cfo', event: 'payment-failed',
+      badgeLabel: 'PAYMENT FAILED', badgeVariant: 'red',
+      heading: `Payment ${pr.reference} failed`,
+      subheading: dto.reason || 'The disbursement was reversed back to the account.',
+      rows: [['Reference', pr.reference], ['Refunded', this.money(refund, pr.currency)]],
+      ctaLabel: 'Review payments', ctaPath: '/dashboard/payments',
+      idempotencyKey: `payment-failed:${id}`,
+    });
     return this.serialize(updated);
   }
 
@@ -285,6 +326,32 @@ export class PaymentsService {
       orderBy: { createdAt: 'desc' },
       include: { paymentRequest: { select: { id: true, reference: true, supplier: { select: { name: true } } } } },
     });
+  }
+
+  /**
+   * Flag payment requests that have been PROCESSING beyond the confirmation
+   * timeout as MISSING_CONFIRMATION. Deduped — skips requests that already carry
+   * an open MISSING_CONFIRMATION exception. Invoked by the hourly cron.
+   */
+  async flagStaleProcessingPayments(timeoutHours = 48): Promise<number> {
+    const cutoff = new Date(Date.now() - timeoutHours * 3_600_000);
+    const stale = await this.prisma.paymentRequest.findMany({
+      where: {
+        status:      'PROCESSING',
+        paymentDate: { lt: cutoff },
+        exceptions:  { none: { type: 'MISSING_CONFIRMATION', status: 'OPEN' } },
+      },
+      select: { id: true, organizationId: true, reference: true, paymentDate: true },
+    });
+    for (const pr of stale) {
+      const hours = pr.paymentDate ? Math.floor((Date.now() - pr.paymentDate.getTime()) / 3_600_000) : timeoutHours;
+      await this.flagException(
+        pr.organizationId, pr.id, 'MISSING_CONFIRMATION',
+        `Payment ${pr.reference} has been processing for ${hours}h without confirmation`,
+      );
+    }
+    if (stale.length) this.logger.warn(`Flagged ${stale.length} stale PROCESSING payment(s) as MISSING_CONFIRMATION`);
+    return stale.length;
   }
 
   async resolveException(id: string, organizationId: string, userId: string) {
@@ -376,6 +443,14 @@ export class PaymentsService {
       data: { organizationId, paymentRequestId, type, detail, status: 'OPEN' },
     });
     this.logger.warn(`Payment exception ${type} on ${paymentRequestId}: ${detail}`);
+    await this.notify.notify({
+      organizationId, audience: 'cfo', event: 'payment-exception',
+      badgeLabel: 'EXCEPTION', badgeVariant: 'red',
+      heading: `Payment exception: ${type.replace(/_/g, ' ')}`,
+      subheading: detail,
+      ctaLabel: 'Review exceptions', ctaPath: '/dashboard/payments',
+      idempotencyKey: `payment-exception:${type}:${paymentRequestId}`,
+    });
   }
 
   private serialize(pr: any) {

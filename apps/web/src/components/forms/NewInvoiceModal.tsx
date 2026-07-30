@@ -192,4 +192,4 @@ export function NewInvoiceModal({ open, onClose }: Props) {
       </div>
     </div>
   );
-}
+} 

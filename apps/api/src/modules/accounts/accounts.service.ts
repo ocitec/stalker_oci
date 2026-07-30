@@ -4,6 +4,7 @@ import {
 import { Prisma, ReplenishmentStatus } from '@prisma/client';
 import { PrismaService } from '../../config/prisma.service';
 import { AuditService } from '../../common/services/audit.service';
+import { NotificationService } from '../../common/notifications/notification.service';
 import { makeReference } from '../../common/utils/reference.util';
 import { CreateAccountDto, UpdateAccountDto, AccountQueryDto } from './dto/account.dto';
 import {
@@ -17,6 +18,7 @@ export class AccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit:  AuditService,
+    private readonly notify: NotificationService,
   ) {}
 
   // ── OPERATIONAL ACCOUNTS ─────────────────────────────────────────────────
@@ -91,6 +93,18 @@ export class AccountsService {
     await this.audit.record({
       userId, action: 'REPLENISHMENT_REQUESTED', entity: 'Replenishment', entityId: created.id,
       newValues: { account: account.name, requestedAmount: dto.requestedAmount },
+    });
+    await this.notify.notify({
+      organizationId, audience: 'cfo', event: 'replenishment-requested',
+      badgeLabel: 'REPLENISHMENT', badgeVariant: 'amber',
+      heading: `Replenishment requested for ${account.name}`,
+      subheading: 'An operational account needs funding to cover pending payments.',
+      rows: [
+        ['Account', account.name],
+        ['Requested', `${account.currency} ${Number(dto.requestedAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`],
+      ],
+      ctaLabel: 'Review replenishments', ctaPath: '/dashboard/accounts',
+      idempotencyKey: `replenishment-requested:${created.id}`,
     });
     return this.serializeReplenishment(created);
   }

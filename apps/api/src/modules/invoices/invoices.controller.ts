@@ -99,7 +99,7 @@ export class InvoicesController {
     @Param('id')                        id:     string,
     @Body()                             dto:    MarkPaidDto,
     @CurrentUser('organizationId')      orgId:  string,
-    @CurrentUser('sub')                 userId: string,
+    @CurrentUser('id')                  userId: string,
   ) {
     return this.invoicesService.markAsPaid(id, dto, orgId, userId);
   }
@@ -117,7 +117,7 @@ export class InvoicesController {
     @Param('id')                        id:     string,
     @Body()                             dto:    RevertPaymentDto,
     @CurrentUser('organizationId')      orgId:  string,
-    @CurrentUser('sub')                 userId: string,
+    @CurrentUser('id')                  userId: string,
   ) {
     return this.invoicesService.revertPayment(id, dto, orgId, userId);
   }

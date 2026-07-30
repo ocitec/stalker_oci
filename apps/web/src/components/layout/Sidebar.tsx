@@ -10,6 +10,7 @@ import {
   LogOut, Settings, ChevronRight, Users, Sun, Moon,
   User, BarChart2, X,
   ShoppingCart, ShieldCheck, ArrowLeftRight,
+  Banknote, Package, Landmark,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/store/auth.store';
@@ -30,6 +31,14 @@ const BASE_NAV_GROUPS = [
       { href: '/dashboard/sales',        icon: ShoppingCart,   label: 'Sales Requests' },
       { href: '/dashboard/credit',       icon: ShieldCheck,    label: 'Credit Control' },
       { href: '/dashboard/transactions', icon: ArrowLeftRight, label: 'Transaction Control' },
+    ],
+  },
+  {
+    label: 'Payment Control',
+    items: [
+      { href: '/dashboard/payments',  icon: Banknote, label: 'Payments' },
+      { href: '/dashboard/suppliers', icon: Package,  label: 'Suppliers' },
+      { href: '/dashboard/accounts',  icon: Landmark, label: 'Accounts' },
     ],
   },
   {

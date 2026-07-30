@@ -27,7 +27,7 @@ export default function PdiPage() {
     <div className="space-y-5 animate-fade-in">
 
       {/* Distribution Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="stat-grid">
         {distCounts.map(d => (
           <div key={d.key} className="card p-4 flex items-center gap-4">
             <ProgressRing value={totalClients > 0 ? Math.round((d.count / totalClients) * 100) : 0} size={52} color={d.color} />
@@ -40,7 +40,7 @@ export default function PdiPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
         {/* Bar chart */}
         <div className="card p-5">

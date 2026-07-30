@@ -22,6 +22,7 @@ import {
   WelcomeUserPayload,
   RoleChangedPayload,
   PasswordResetPayload,
+  InternalNoticePayload,
 } from './email.types';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -244,6 +245,17 @@ export class EmailTemplateService {
 
   constructor(private readonly config: ConfigService) {
     this.dashboardUrl = config.get('frontend.url') || 'http://localhost:3000';
+  }
+
+  // ── Internal: Generic control-chain notice ─────────────────────────────────
+  internalNotice(p: InternalNoticePayload): { subject: string; html: string } {
+    const subject = p.heading;
+    const content = `
+      ${badge(p.badgeLabel, p.badgeVariant ?? 'blue')}
+      ${headline(p.heading, p.subheading)}
+      ${p.rows && p.rows.length ? detailTable(p.rows.map(([l, v]) => [l, `<span style="color:${C.textSecondary};">${v}</span>`] as [string, string])) : ''}
+      ${p.ctaLabel && p.ctaPath ? ctaButton(p.ctaLabel, `${this.dashboardUrl}${p.ctaPath}`, p.badgeVariant === 'red' ? 'red' : p.badgeVariant === 'green' ? 'green' : 'amber') : ''}`;
+    return { subject, html: baseLayout(content, p.subheading || p.heading) };
   }
 
   // ── Client: Invoice Created ────────────────────────────────────────────────

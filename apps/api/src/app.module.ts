@@ -8,6 +8,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { PrismaModule } from './config/prisma.module';
 import { CommonModule } from './common/common.module';
+import { NotificationsModule } from './common/notifications/notifications.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ClientsModule } from './modules/clients/clients.module';
@@ -80,7 +81,8 @@ import {
 
     // ── Core Database ─────────────────────────────────────────────────────────
     PrismaModule,
-    CommonModule,                    // ← global AuditService + ExposureService
+    CommonModule,                    // ← global AuditService + ExposureService + ExportService
+    NotificationsModule,             // ← global NotificationService (emails queue)
 
     // ── Feature Modules ───────────────────────────────────────────────────────
     AuthModule,

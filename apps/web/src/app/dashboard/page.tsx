@@ -64,7 +64,7 @@ export default function DashboardPage() {
     <div className="space-y-5 animate-fade-in">
 
       {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="stat-grid">
         {isLoading ? (
           Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
         ) : data ? (
@@ -119,7 +119,7 @@ export default function DashboardPage() {
             )}
           </div>
           {/* Bucket breakdown */}
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
             {agingBuckets.map(b => (
               <div
                 key={b.label}
@@ -166,7 +166,7 @@ export default function DashboardPage() {
             </button>
           }
         />
-        <div className="grid grid-cols-4 gap-3 mt-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
           {[
             { icon: <Clock size={13} style={{ color: 'var(--amber)' }} />, label: 'Due Today',
               value: fu?.followUpsDueToday ?? 0, accent: 'var(--amber)', alert: (fu?.followUpsDueToday ?? 0) > 0, link: '/dashboard/followups' },
@@ -215,7 +215,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Action Centre ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* Top 5 Clients to Chase */}
         <div className="card p-5">
@@ -297,8 +297,8 @@ export default function DashboardPage() {
               </button>
             }
           />
-          <div style={{ overflowY: 'auto', maxHeight: 300 }}>
-            <table className="w-full text-xs">
+          <div className="table-wrap" style={{ overflowY: 'auto', maxHeight: 300 }}>
+            <table className="w-full text-xs" style={{ minWidth: 380 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
                   {['Invoice', 'Client', 'Outstanding', '+Days', 'Contact'].map(h => (
@@ -344,7 +344,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Credit Enforcement + SLA & Collections ────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* Credit Enforcement */}
         <div className="card p-5">

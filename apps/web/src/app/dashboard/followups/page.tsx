@@ -69,7 +69,7 @@ export default function FollowUpsPage() {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-5 animate-fade-in">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 animate-fade-in">
 
       {/* ── Left: Follow-up Clock ───────────────────────────────────────── */}
       <div className="space-y-4">

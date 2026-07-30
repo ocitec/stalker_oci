@@ -29,6 +29,7 @@ import type {
   WelcomeUserPayload,
   RoleChangedPayload,
   PasswordResetPayload,
+  InternalNoticePayload,
 } from '../email/email.types';
 
 @Processor('emails')
@@ -380,6 +381,22 @@ export class EmailsProcessor {
       jobName: EmailJobName.PASSWORD_RESET,
       metadata: { userId: p.userId },
     });
+  }
+
+  // ── Control chain: Generic internal notice ────────────────────────────────
+  @Process(EmailJobName.INTERNAL_NOTICE)
+  async handleInternalNotice(job: Job<InternalNoticePayload>) {
+    const p = job.data;
+    const { subject, html } = this.templates.internalNotice(p);
+    const recipients = p.audience === 'cfo'
+      ? await this.cfoRecipients(p.organizationId)
+      : await this.financeRecipients(p.organizationId);
+    await this.sendToMany(
+      recipients, subject, html,
+      EmailJobName.INTERNAL_NOTICE,
+      p.idempotencyKey ? `${EmailJobName.INTERNAL_NOTICE}:${p.idempotencyKey}` : undefined,
+      { event: p.event },
+    );
   }
 
   // ── Queue lifecycle hooks ──────────────────────────────────────────────────

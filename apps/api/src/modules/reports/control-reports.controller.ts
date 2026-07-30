@@ -42,6 +42,7 @@ export class ControlReportsController {
       from:       q.from,       to:         q.to,       clientId: q.clientId,
       supplierId: q.supplierId, status:     q.status,   approverId: q.approverId,
       accountId:  q.accountId,  currency:   q.currency, type:      q.type,
+      department: q.department,
     };
   }
 

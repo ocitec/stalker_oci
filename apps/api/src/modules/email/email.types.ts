@@ -28,6 +28,9 @@ export const EmailJobName = {
   WELCOME_USER:             'send-welcome-user',
   ROLE_CHANGED:             'send-role-changed',
   PASSWORD_RESET:           'send-password-reset',
+
+  // Financial control chain (Transaction / Payment Control) — generic internal notice
+  INTERNAL_NOTICE:          'send-internal-notice',
 } as const;
 
 export type EmailJobNameValue = (typeof EmailJobName)[keyof typeof EmailJobName];
@@ -241,6 +244,26 @@ export interface PasswordResetPayload {
   resetToken: string;
   expiresAt: string;
   organizationName: string;
+}
+
+/**
+ * Generic internal notification for the financial-control-chain workflows.
+ * Rendered by EmailTemplateService.internalNotice and routed to finance/CFO
+ * recipients by the emails processor — so these events use the exact same
+ * BullMQ + EmailService + idempotency machinery as every other module.
+ */
+export interface InternalNoticePayload {
+  organizationId: string;
+  audience:       'finance' | 'cfo';
+  event:          string;                 // short code for logging + idempotency
+  badgeLabel:     string;
+  badgeVariant?:  'amber' | 'red' | 'green' | 'blue' | 'purple' | 'neutral';
+  heading:        string;
+  subheading?:    string;
+  rows?:          Array<[string, string]>;
+  ctaLabel?:      string;
+  ctaPath?:       string;
+  idempotencyKey?: string;
 }
 
 // ── EmailService contract ──────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ export interface ControlReportFilters {
   accountId?:  string;
   currency?:   string;
   type?:       string;
+  department?: string;   // filters reports with a user relation by that user's department
 }
 
 const num = (v: any) => (v == null ? 0 : Number(v));
@@ -43,6 +44,7 @@ export class ControlReportsService {
       ...(f.clientId && { clientId: f.clientId }),
       ...(f.status   && { status: f.status as any }),
       ...(f.currency && { currency: f.currency }),
+      ...(f.department && { createdBy: { department: f.department } }),
       ...this.dateRange(f, 'transactionDate'),
     };
     const rows = await this.prisma.transaction.findMany({
@@ -125,6 +127,7 @@ export class ControlReportsService {
       transaction: { organizationId: orgId },
       ...(f.approverId && { approverId: f.approverId }),
       ...(f.status && { decision: f.status as any }),
+      ...(f.department && { approver: { department: f.department } }),
       ...this.dateRange(f, 'createdAt'),
     };
     const rows = await this.prisma.transactionApproval.findMany({
@@ -193,6 +196,7 @@ export class ControlReportsService {
       ...(f.accountId && { operationalAccountId: f.accountId }),
       ...(f.status && { status: f.status as any }),
       ...(f.currency && { currency: f.currency }),
+      ...(f.department && { createdBy: { department: f.department } }),
       ...this.dateRange(f, 'createdAt'),
     };
     const rows = await this.prisma.paymentRequest.findMany({
