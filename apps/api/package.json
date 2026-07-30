@@ -7,6 +7,7 @@
     "build": "prisma generate && nest build",
     "dev": "nest start --watch",
     "start": "node dist/src/main",
+    "start:prod": "prisma migrate deploy --schema=prisma/schema.prisma && node dist/src/main",
     "test": "jest",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "lint": "eslint \"src/**/*.{js,ts}\" --fix",
@@ -35,6 +36,7 @@
     "@nestjs/websockets": "^11.1.18",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "prisma": "^7.8.0",
     "bcryptjs": "^3.0.3",
     "bull": "^4.16.5",
     "class-transformer": "^0.5.1",
@@ -73,7 +75,6 @@
     "@types/passport-local": "^1.0.38",
     "@types/pg": "^8.11.14",
     "jest": "^30.3.0",
-    "prisma": "^7.6.0",
     "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"

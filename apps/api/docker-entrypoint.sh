@@ -3,10 +3,10 @@ set -e
 
 echo "🚀 Starting Stalker API..."
 
-# Run Prisma migrations
-echo "📦 Running database migrations..."
-npx prisma migrate deploy --skip-generate
+# Apply any pending database migrations before the app boots.
+echo "📦 Running database migrations (prisma migrate deploy)..."
+npx prisma migrate deploy --schema=prisma/schema.prisma --skip-generate
 
-# Start the application
+# Start the application (Nest builds to dist/src/main.js)
 echo "✅ Starting application..."
-exec node dist/main
+exec node dist/src/main
