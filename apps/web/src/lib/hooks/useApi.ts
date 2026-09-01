@@ -123,6 +123,19 @@ export function useUnblockClient() {
   });
 }
 
+export function useDeleteClient() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => clientsApi.delete(id).then(r => r.data.data),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ['clients'] });
+      qc.invalidateQueries({ queryKey: QK.dashboard });
+      toast.success(data?.name ? `Client ${data.name} deleted` : 'Client deleted');
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to delete client'),
+  });
+}
+
 // ── Invoices ───────────────────────────────────────────────────────────────
 export function useInvoices(params?: any) {
   return useQuery({

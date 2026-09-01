@@ -79,3 +79,9 @@ build/
 out/
 .turbo/
 *.pem
+
+# ── Documentation (local working docs, not version-controlled) ──
+docs/
+
+# ── Claude Code ───────────────────────────────
+.claude/

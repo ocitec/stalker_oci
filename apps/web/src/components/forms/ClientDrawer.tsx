@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   X, Building2, Shield, ShieldOff, ShieldCheck, FileText,
-  AlertTriangle, TrendingUp, TrendingDown, Minus,
+  AlertTriangle, TrendingUp, TrendingDown, Minus, Trash2,
 } from 'lucide-react';
-import { useClient, useInvoices, useBlockClient, useUnblockClient } from '@/lib/hooks/useApi';
+import { useClient, useInvoices, useBlockClient, useUnblockClient, useDeleteClient } from '@/lib/hooks/useApi';
+import { useAuthStore } from '@/lib/store/auth.store';
 import { Badge, AmberButton, GhostButton, PdiBar, SkeletonCard } from '@/components/ui';
 import { fmtCurrency, fmtDate, getStatusClass, getStatusLabel, getPdiColor, getPdiLabel, getRiskBadgeClass } from '@/lib/utils';
 import { ActionSeverity } from '@/types';
@@ -48,11 +49,21 @@ export function ClientDrawer({ clientId, onClose, onViewInvoice }: Props) {
   const { data: invoicesData }      = useInvoices({ clientId: clientId ?? '', limit: 20 });
   const blockClient   = useBlockClient();
   const unblockClient = useUnblockClient();
+  const deleteClient  = useDeleteClient();
+  const { user }      = useAuthStore();
 
   const [blockReason, setBlockReason] = useState('');
   const [showBlockForm, setShowBlockForm] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Reset transient controls when switching to a different client.
+  useEffect(() => { setConfirmDelete(false); setShowBlockForm(false); }, [clientId]);
 
   const invoices = invoicesData?.data ?? [];
+  // Deletion is Admin-only and only offered when the client has no invoices;
+  // the backend additionally blocks clients with sales/credit/transaction history.
+  const invoiceCount = Number((client as any)?._count?.invoices ?? 0);
+  const canDelete = !!client && user?.role === 'ADMIN' && invoiceCount === 0;
   const pdi      = Math.round(Number(client?.paymentDisciplineIndex ?? 0));
   const utilPct  = client?.utilizationPercent ?? 0;
   const utilColor = utilPct > 80 ? '#F43F5E' : utilPct > 50 ? '#F59E0B' : '#10B981';
@@ -72,6 +83,14 @@ export function ClientDrawer({ clientId, onClose, onViewInvoice }: Props) {
   async function handleUnblock() {
     if (!clientId) return;
     await unblockClient.mutateAsync({ id: clientId });
+  }
+
+  async function handleDelete() {
+    if (!clientId) return;
+    try {
+      await deleteClient.mutateAsync(clientId);
+      onClose();
+    } catch { /* error surfaced by the mutation toast; keep drawer open */ }
   }
 
   return (
@@ -371,29 +390,64 @@ export function ClientDrawer({ clientId, onClose, onViewInvoice }: Props) {
             className="sticky bottom-0 px-5 py-4 flex gap-3"
             style={{ background: 'var(--bg-1)', borderTop: '1px solid var(--border)' }}
           >
-            {client.isBlocked ? (
-              <button
-                onClick={handleUnblock}
-                disabled={unblockClient.isPending}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all hover:opacity-80 disabled:opacity-40 flex-1 justify-center"
-                style={{ background: 'rgba(16,185,129,0.12)', color: '#10B981', border: '1px solid rgba(16,185,129,0.25)' }}
-              >
-                <ShieldCheck size={13} />
-                {unblockClient.isPending ? 'Unblocking…' : 'Unblock Client'}
-              </button>
+            {confirmDelete ? (
+              <div className="flex-1 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <AlertTriangle size={14} style={{ color: '#F43F5E', flexShrink: 0 }} />
+                  <span className="text-xs font-semibold truncate" style={{ color: '#F43F5E' }}>
+                    Delete this client permanently?
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleteClient.isPending}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:opacity-80 disabled:opacity-40"
+                    style={{ background: '#F43F5E', color: '#fff' }}
+                  >
+                    {deleteClient.isPending ? 'Deleting…' : 'Confirm Delete'}
+                  </button>
+                  <GhostButton onClick={() => setConfirmDelete(false)}>Cancel</GhostButton>
+                </div>
+              </div>
             ) : (
-              !showBlockForm && (
-                <button
-                  onClick={() => setShowBlockForm(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all hover:opacity-80 flex-1 justify-center"
-                  style={{ background: 'rgba(244,63,94,0.1)', color: '#F43F5E', border: '1px solid rgba(244,63,94,0.2)' }}
-                >
-                  <ShieldOff size={13} />
-                  Block Client
-                </button>
-              )
+              <>
+                {client.isBlocked ? (
+                  <button
+                    onClick={handleUnblock}
+                    disabled={unblockClient.isPending}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all hover:opacity-80 disabled:opacity-40 flex-1 justify-center"
+                    style={{ background: 'rgba(16,185,129,0.12)', color: '#10B981', border: '1px solid rgba(16,185,129,0.25)' }}
+                  >
+                    <ShieldCheck size={13} />
+                    {unblockClient.isPending ? 'Unblocking…' : 'Unblock Client'}
+                  </button>
+                ) : (
+                  !showBlockForm && (
+                    <button
+                      onClick={() => setShowBlockForm(true)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all hover:opacity-80 flex-1 justify-center"
+                      style={{ background: 'rgba(244,63,94,0.1)', color: '#F43F5E', border: '1px solid rgba(244,63,94,0.2)' }}
+                    >
+                      <ShieldOff size={13} />
+                      Block Client
+                    </button>
+                  )
+                )}
+                {canDelete && !showBlockForm && (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    title="Delete client"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all hover:opacity-80"
+                    style={{ background: 'rgba(244,63,94,0.1)', color: '#F43F5E', border: '1px solid rgba(244,63,94,0.2)' }}
+                  >
+                    <Trash2 size={13} />
+                    Delete
+                  </button>
+                )}
+                <GhostButton onClick={onClose}>Close</GhostButton>
+              </>
             )}
-            <GhostButton onClick={onClose}>Close</GhostButton>
           </div>
         )}
       </div>

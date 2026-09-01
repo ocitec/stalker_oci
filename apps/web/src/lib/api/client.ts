@@ -118,6 +118,10 @@ export const clientsApi = {
   block:      (id: string, reason: string)     => api.patch(`/clients/${id}/block`, { reason }),
   unblock:    (id: string)                     => api.patch(`/clients/${id}/unblock`),
   pdiRanking: ()                               => api.get('/clients/pdi-ranking'),
+  delete:     (id: string)                     => api.delete(`/clients/${id}`),
+  duplicates: ()                               => api.get('/clients/duplicates'),
+  merge:      (survivorId: string, duplicateIds: string[]) =>
+    api.post('/clients/merge', { survivorId, duplicateIds }),
 };
 
 export const invoicesApi = {
