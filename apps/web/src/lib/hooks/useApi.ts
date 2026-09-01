@@ -136,6 +136,30 @@ export function useDeleteClient() {
   });
 }
 
+// Duplicate detection (dry-run) — Admin/CFO. Gate with `enabled` so other roles never call it.
+export function useClientDuplicates(enabled = true) {
+  return useQuery({
+    queryKey: ['clients', 'duplicates'],
+    queryFn:  () => clientsApi.duplicates().then(r => r.data.data),
+    enabled,
+  });
+}
+
+export function useMergeClients() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ survivorId, duplicateIds }: { survivorId: string; duplicateIds: string[] }) =>
+      clientsApi.merge(survivorId, duplicateIds).then(r => r.data.data),
+    onSuccess: (data: any) => {
+      // Refetching ['clients'] also refreshes ['clients','duplicates'], so the button auto-hides once resolved.
+      qc.invalidateQueries({ queryKey: ['clients'] });
+      qc.invalidateQueries({ queryKey: QK.dashboard });
+      toast.success(`Merged ${data?.merged ?? ''} duplicate(s) into ${data?.survivorName ?? 'the survivor'}`);
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to merge clients'),
+  });
+}
+
 // ── Invoices ───────────────────────────────────────────────────────────────
 export function useInvoices(params?: any) {
   return useQuery({

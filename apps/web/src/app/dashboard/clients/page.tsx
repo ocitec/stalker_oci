@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Plus, ShieldOff, ShieldCheck, Building2, Download, Pencil } from 'lucide-react';
-import { useClients, useBlockClient, useUnblockClient } from '@/lib/hooks/useApi';
+import { Search, Plus, ShieldOff, ShieldCheck, Building2, Download, Pencil, Copy } from 'lucide-react';
+import { useClients, useBlockClient, useUnblockClient, useClientDuplicates } from '@/lib/hooks/useApi';
+import { useAuthStore } from '@/lib/store/auth.store';
 import { Badge, GhostButton, EmptyState, PdiBar, PageHeader, Toolbar, Button, ResponsiveTable, Column } from '@/components/ui';
 import { fmtCurrency, getPdiColor, getPdiLabel, getRiskBadgeClass } from '@/lib/utils';
 import { Client } from '@/types';
@@ -10,6 +11,7 @@ import { AddClientModal }  from '@/components/forms/AddClientModal';
 import { EditClientModal } from '@/components/forms/EditClientModal';
 import { ClientDrawer }    from '@/components/forms/ClientDrawer';
 import { InvoiceDrawer }   from '@/components/forms/InvoiceDrawer';
+import { DuplicateClientsModal } from '@/components/forms/DuplicateClientsModal';
 
 function exportCsv(clients: Client[]) {
   const header = ['Name','Email','Sector','PDI','Risk','Credit Limit','Outstanding','Utilisation %','SLA Days','Status'];
@@ -39,6 +41,12 @@ export default function ClientsPage() {
 
   const blockClient   = useBlockClient();
   const unblockClient = useUnblockClient();
+
+  const { user } = useAuthStore();
+  const canViewDuplicates = user?.role === 'ADMIN' || user?.role === 'CFO';
+  const { data: dupData } = useClientDuplicates(canViewDuplicates);
+  const duplicateCount = dupData?.duplicateGroups?.length ?? 0;
+  const [dupOpen, setDupOpen] = useState(false);
 
   const { data, isLoading } = useClients({ search: search || undefined, riskStatus: risk || undefined, isBlocked, page, limit: PAGE_SIZE });
   const clients: Client[] = (data as any)?.data ?? (Array.isArray(data) ? data : []);
@@ -80,6 +88,16 @@ export default function ClientsPage() {
       <div className="animate-fade-in">
         <PageHeader title="Clients" subtitle="Corporate accounts, risk and exposure"
           actions={<>
+            {canViewDuplicates && duplicateCount > 0 && (
+              <button
+                onClick={() => setDupOpen(true)}
+                title="Review and merge duplicate clients"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all hover:opacity-90"
+                style={{ background: 'rgba(244,63,94,0.12)', color: '#F43F5E', border: '1px solid rgba(244,63,94,0.25)' }}
+              >
+                <Copy size={13} /> {duplicateCount} Duplicate{duplicateCount > 1 ? 's' : ''}
+              </button>
+            )}
             <GhostButton onClick={() => clients.length > 0 && exportCsv(clients)} disabled={clients.length === 0}><Download size={12} className="inline mr-1" />Export</GhostButton>
             <Button onClick={() => setAddOpen(true)} blockMobile><Plus size={15} /> Add Client</Button>
           </>} />
@@ -115,6 +133,7 @@ export default function ClientsPage() {
       </div>
       <AddClientModal  open={addOpen}       onClose={() => setAddOpen(false)} />
       <EditClientModal client={editClient}  onClose={() => setEditClient(null)} />
+      <DuplicateClientsModal open={dupOpen} onClose={() => setDupOpen(false)} canMerge={user?.role === 'ADMIN'} />
       <ClientDrawer    clientId={clientId}  onClose={() => setClientId(null)} onViewInvoice={id => { setClientId(null); setInvoiceId(id); }} />
       <InvoiceDrawer   invoiceId={invoiceId} onClose={() => setInvoiceId(null)} />
     </>
