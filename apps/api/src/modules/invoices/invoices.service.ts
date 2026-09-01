@@ -13,6 +13,7 @@ import { InvoiceQueryDto } from './dto/invoice-query.dto';
 import { MarkPaidDto } from './dto/mark-paid.dto';
 import { RevertPaymentDto } from './dto/revert-payment.dto';
 import { EmailJobName } from '../email/email.types';
+import { AuditService } from '../../common/services/audit.service';
 
 const BALANCE_EPSILON = 0.005;
 
@@ -25,7 +26,63 @@ export class InvoicesService {
     private readonly clientsService: ClientsService,
     @InjectQueue('alerts') private alertsQueue: Queue,
     @InjectQueue('emails') private emailsQueue: Queue,
+    private readonly audit: AuditService,
   ) {}
+
+  // ── DELETE ─────────────────────────────────────────────────────────────────
+  async remove(id: string, organizationId: string, userId: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where:   { id, client: { organizationId } },
+      include: { client: { select: { id: true, name: true } } },
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    // Protect financial history — an invoice with recorded payments cannot be deleted.
+    if (Number(invoice.amountPaid) > BALANCE_EPSILON) {
+      throw new BadRequestException(
+        'Cannot delete an invoice that has recorded payments. Revert its payments first.',
+      );
+    }
+
+    // Protect the control chain — an invoice linked to a transaction cannot be deleted.
+    const linkedTxn = await this.prisma.transaction.findFirst({
+      where:  { invoiceId: id },
+      select: { reference: true },
+    });
+    if (linkedTxn) {
+      throw new BadRequestException(
+        `Cannot delete: invoice is linked to transaction ${linkedTxn.reference}. Cancel that transaction first.`,
+      );
+    }
+
+    // Remove subordinate rows that do not cascade, then the invoice itself.
+    // PaymentRecords cascade via the schema (only reverted records can remain here).
+    await this.prisma.$transaction([
+      this.prisma.followUp.deleteMany({ where: { invoiceId: id } }),
+      this.prisma.slaViolation.deleteMany({ where: { invoiceId: id } }),
+      this.prisma.alert.deleteMany({ where: { invoiceId: id } }),
+      this.prisma.invoice.delete({ where: { id } }),
+    ]);
+
+    // Removing an invoice changes the PDI denominator — keep risk scores in sync.
+    await this.clientsService.recalculatePDI(invoice.clientId);
+
+    await this.audit.record({
+      userId,
+      action:    'INVOICE_DELETED',
+      entity:    'Invoice',
+      entityId:  id,
+      oldValues: {
+        invoiceNumber: invoice.invoiceNumber,
+        amount:        Number(invoice.invoiceAmount),
+        status:        invoice.status,
+        client:        invoice.client.name,
+      },
+    });
+
+    this.logger.log(`Invoice ${invoice.invoiceNumber} deleted (client ${invoice.client.name})`);
+    return { id, deleted: true, invoiceNumber: invoice.invoiceNumber };
+  }
 
   // ── CREATE ─────────────────────────────────────────────────────────────────
   async create(dto: CreateInvoiceDto, organizationId: string) {

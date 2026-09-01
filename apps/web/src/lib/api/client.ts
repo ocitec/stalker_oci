@@ -128,6 +128,7 @@ export const invoicesApi = {
   dso:     ()             => api.get('/invoices/dso'),
   create:  (data: any)    => api.post('/invoices', data),
   update:  (id: string, data: any) => api.patch(`/invoices/${id}`, data),
+  delete:  (id: string)   => api.delete(`/invoices/${id}`),
 
   // ── Mark paid: supports full or partial payment ──────────────────────────
   markPaid: (

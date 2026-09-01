@@ -184,6 +184,19 @@ export function useUpdateInvoice() {
   });
 }
 
+// ── Delete invoice ───────────────────────────────────────────────────────────
+export function useDeleteInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => invoicesApi.delete(id).then(r => r.data.data),
+    onSuccess: (data: any) => {
+      invalidatePaymentQueries(qc);
+      toast.success(data?.invoiceNumber ? `Invoice ${data.invoiceNumber} deleted` : 'Invoice deleted');
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to delete invoice'),
+  });
+}
+
 // ── Mark paid — supports full and partial payments ─────────────────────────
 export function useMarkPaid() {
   const qc = useQueryClient();

@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Body,
+  Controller, Get, Post, Patch, Delete, Body,
   Param, Query, UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -120,5 +120,22 @@ export class InvoicesController {
     @CurrentUser('id')                  userId: string,
   ) {
     return this.invoicesService.revertPayment(id, dto, orgId, userId);
+  }
+
+  // ── Delete invoice ─────────────────────────────────────────────────────────
+  @Delete(':id')
+  @Roles(UserRole.ADMIN, UserRole.CFO, UserRole.FINANCE)
+  @ApiOperation({
+    summary: 'Delete an invoice',
+    description:
+      'Permanently deletes an invoice and its follow-ups, SLA violations and alerts. ' +
+      'Blocked when the invoice has recorded payments or is linked to a transaction.',
+  })
+  remove(
+    @Param('id')                        id:     string,
+    @CurrentUser('organizationId')      orgId:  string,
+    @CurrentUser('id')                  userId: string,
+  ) {
+    return this.invoicesService.remove(id, orgId, userId);
   }
 }

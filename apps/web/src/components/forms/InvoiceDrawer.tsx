@@ -3,9 +3,10 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   X, FileText, CheckCircle2, Clock, RotateCcw,
-  ChevronDown, AlertTriangle, DollarSign, Calendar, User, Pencil,
+  ChevronDown, AlertTriangle, DollarSign, Calendar, User, Pencil, Trash2,
 } from 'lucide-react';
-import { useInvoice, useMarkPaid, useRevertPayment, useUpdateInvoice } from '@/lib/hooks/useApi';
+import { useInvoice, useMarkPaid, useRevertPayment, useUpdateInvoice, useDeleteInvoice } from '@/lib/hooks/useApi';
+import { useAuthStore } from '@/lib/store/auth.store';
 import { Badge, AmberButton, GhostButton, SkeletonCard } from '@/components/ui';
 import {
   fmtCurrency, fmtDate, fmtDateTime, fmtRelative,
@@ -157,6 +158,8 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
   const markPaid      = useMarkPaid();
   const revertPayment = useRevertPayment();
   const updateInvoice = useUpdateInvoice();
+  const deleteInvoice = useDeleteInvoice();
+  const { user }      = useAuthStore();
 
   // ── Local UI state ────────────────────────────────────────────────────
   const [paymentInput, setPaymentInput]   = useState('');
@@ -164,6 +167,7 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
   const [paymentNotes, setPaymentNotes]   = useState('');
   const [inputError,   setInputError]     = useState('');
   const [revertTarget, setRevertTarget]   = useState<PaymentRecord | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const amountRef = useRef<HTMLInputElement>(null);
 
   // ── Edit mode state ───────────────────────────────────────────────────
@@ -184,6 +188,7 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
     setInputError('');
     setRevertTarget(null);
     setIsEditing(false);
+    setConfirmDelete(false);
   }, [invoiceId]);
 
   // Populate edit form fields when invoice data loads
@@ -253,6 +258,11 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
   const statusColor    = invoice ? getStatusColor(invoice.status) : 'var(--text-3)';
   const isSettled      = invoice?.status === 'PAID' || invoice?.status === 'CANCELLED';
 
+  // Delete is only offered on invoices with no recorded payments, and never while editing.
+  // The backend also blocks deletion of paid or transaction-linked invoices.
+  const canDelete = !!invoice && !isEditing && amountPaid <= 0.005 &&
+    ['ADMIN', 'CFO', 'FINANCE'].includes(user?.role ?? '');
+
   // Payments: desc order, active ones first
   const allPayments    = (invoice?.payments ?? []) as PaymentRecord[];
   const activePayments = allPayments.filter(p => !p.isReverted);
@@ -304,6 +314,14 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
       reason:          reason || undefined,
     });
     setRevertTarget(null);
+  }
+
+  async function handleConfirmDelete() {
+    if (!invoice) return;
+    try {
+      await deleteInvoice.mutateAsync(invoice.id);
+      onClose();
+    } catch { /* error surfaced by the mutation toast; keep drawer open */ }
   }
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -767,22 +785,55 @@ export function InvoiceDrawer({ invoiceId, onClose }: Props) {
           className="sticky bottom-0 px-5 py-3 flex items-center justify-between gap-3"
           style={{ background: 'var(--bg-1)', borderTop: '1px solid var(--border)' }}
         >
-          {invoice?.status === 'PAID' ? (
-            <div className="flex items-center gap-2">
-              <CheckCircle2 size={15} style={{ color: '#10B981' }} />
-              <span className="text-xs font-semibold" style={{ color: '#10B981' }}>
-                Fully paid · {fmtDate(invoice.paidDate)}
-              </span>
-            </div>
-          ) : invoice?.status === 'PARTIALLY_PAID' ? (
-            <div className="text-xs" style={{ color: 'var(--text-3)' }}>
-              <span className="mono font-bold" style={{ color: '#3B82F6' }}>{progressPct}%</span>
-              {' '}paid · {fmtCurrency(remaining)} remaining
+          {confirmDelete ? (
+            <div className="flex-1 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertTriangle size={14} style={{ color: '#F43F5E', flexShrink: 0 }} />
+                <span className="text-xs font-semibold truncate" style={{ color: '#F43F5E' }}>
+                  Delete this invoice permanently?
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={handleConfirmDelete}
+                  disabled={deleteInvoice.isPending}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:opacity-80 disabled:opacity-40"
+                  style={{ background: '#F43F5E', color: '#fff' }}
+                >
+                  {deleteInvoice.isPending ? 'Deleting…' : 'Confirm Delete'}
+                </button>
+                <GhostButton onClick={() => setConfirmDelete(false)}>Cancel</GhostButton>
+              </div>
             </div>
           ) : (
-            <div />
+            <>
+              {invoice?.status === 'PAID' ? (
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={15} style={{ color: '#10B981' }} />
+                  <span className="text-xs font-semibold" style={{ color: '#10B981' }}>
+                    Fully paid · {fmtDate(invoice.paidDate)}
+                  </span>
+                </div>
+              ) : invoice?.status === 'PARTIALLY_PAID' ? (
+                <div className="text-xs" style={{ color: 'var(--text-3)' }}>
+                  <span className="mono font-bold" style={{ color: '#3B82F6' }}>{progressPct}%</span>
+                  {' '}paid · {fmtCurrency(remaining)} remaining
+                </div>
+              ) : canDelete ? (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all hover:opacity-80"
+                  style={{ background: 'rgba(244,63,94,0.1)', color: '#F43F5E', border: '1px solid rgba(244,63,94,0.2)' }}
+                >
+                  <Trash2 size={12} />
+                  Delete
+                </button>
+              ) : (
+                <div />
+              )}
+              <GhostButton onClick={onClose}>Close</GhostButton>
+            </>
           )}
-          <GhostButton onClick={onClose}>Close</GhostButton>
         </div>
       </div>
     </div>
