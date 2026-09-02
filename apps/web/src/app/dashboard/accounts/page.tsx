@@ -6,7 +6,7 @@ import {
   useAccounts, useAccountAction, useReplenishments, useReplenishmentAction,
 } from '@/lib/hooks/usePaymentControl';
 import {
-  PageHeader, Button, ResponsiveTable, Column, EmptyState, StatusPill, Dialog, Field, SkeletonCard, SectionTitle, Pagination,
+  PageHeader, Button, ResponsiveTable, Column, EmptyState, StatusPill, Dialog, Field, SkeletonCard, SectionTitle, Pagination, AmberButton, GhostButton,
 } from '@/components/ui';
 
 const PAGE_SIZE = 20;
@@ -87,6 +87,7 @@ export default function AccountsPage() {
   };
 
   return (
+    <>
     <div className="animate-fade-in space-y-6">
       <PageHeader title="Operational Accounts" subtitle="Disbursement accounts and funding"
         actions={canManage ? <Button onClick={openNewAcc} blockMobile><Plus size={15} /> New Account</Button> : undefined} />
@@ -118,12 +119,12 @@ export default function AccountsPage() {
         <ResponsiveTable columns={rplCols} rows={replenishments} loading={rplLoading} rowActions={rplActions}
           empty={<div className="card"><EmptyState icon={<AlertTriangle size={28} />} title="No replenishment requests" /></div>} />
         {rplMeta && <Pagination page={rplPage} totalPages={rplMeta.totalPages} total={rplMeta.total} pageSize={PAGE_SIZE} onPage={setRplPage} label="replenishments" />}
-      </div>
-
-      {/* Account dialog */}
+      </div>      
+    </div>
+    {/* Account dialog */}
       <Dialog open={accOpen} onClose={() => setAccOpen(false)} icon={<Landmark size={15} />}
         title={editAcc ? 'Edit account' : 'New operational account'} subtitle={editAcc?.name}
-        footer={<><Button variant="ghost" onClick={() => setAccOpen(false)}>Cancel</Button><Button onClick={saveAcc} disabled={accAction.isPending}>{accAction.isPending ? 'Saving…' : 'Save'}</Button></>}>
+        footer={<><GhostButton onClick={() => setAccOpen(false)}>Cancel</GhostButton><AmberButton onClick={saveAcc} disabled={accAction.isPending}>{accAction.isPending ? 'Saving…' : 'Save'}</AmberButton></>}>
         <Field label="Account name" error={err}><input className="form-input" value={accForm.name} onChange={e => setAccForm({ ...accForm, name: e.target.value })} placeholder="Main Disbursement Account" /></Field>
         {!editAcc && (
           <>
@@ -140,7 +141,7 @@ export default function AccountsPage() {
 
       {/* Replenishment dialog */}
       <Dialog open={rplOpen} onClose={() => setRplOpen(false)} icon={<Plus size={15} />} title="Request replenishment"
-        footer={<><Button variant="ghost" onClick={() => setRplOpen(false)}>Cancel</Button><Button onClick={saveRpl} disabled={rplAction.isPending}>{rplAction.isPending ? 'Submitting…' : 'Submit'}</Button></>}>
+        footer={<><GhostButton onClick={() => setRplOpen(false)}>Cancel</GhostButton><AmberButton onClick={saveRpl} disabled={rplAction.isPending}>{rplAction.isPending ? 'Submitting…' : 'Submit'}</AmberButton></>}>
         <Field label="Account" error={err}>
           <select className="form-input" value={rplForm.operationalAccountId} onChange={e => setRplForm({ ...rplForm, operationalAccountId: e.target.value })}>
             <option value="">Select account…</option>
@@ -150,6 +151,6 @@ export default function AccountsPage() {
         <Field label="Requested amount"><input className="form-input mono" type="number" value={rplForm.requestedAmount} onChange={e => setRplForm({ ...rplForm, requestedAmount: e.target.value })} placeholder="0.00" /></Field>
         <Field label="Notes"><textarea className="form-input" rows={2} value={rplForm.notes} onChange={e => setRplForm({ ...rplForm, notes: e.target.value })} /></Field>
       </Dialog>
-    </div>
+    </>
   );
 }

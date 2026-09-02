@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Search, Plus, Package } from 'lucide-react';
 import { useSuppliers, useSupplierAction } from '@/lib/hooks/usePaymentControl';
 import {
-  PageHeader, Toolbar, Button, ResponsiveTable, Column, EmptyState, StatusPill, Dialog, Field, Pagination,
+  PageHeader, Toolbar, Button, ResponsiveTable, Column, EmptyState, StatusPill, Dialog, Field, Pagination, AmberButton, GhostButton,
 } from '@/components/ui';
 
 const PAGE_SIZE = 20;
@@ -59,28 +59,30 @@ export default function SuppliersPage() {
   ];
 
   return (
-    <div className="animate-fade-in">
-      <PageHeader title="Suppliers" subtitle="Disbursement counterparties for payment requests"
-        actions={<Button onClick={startNew} blockMobile><Plus size={15} /> New Supplier</Button>} />
+    <>
+      <div className="animate-fade-in">
+        <PageHeader title="Suppliers" subtitle="Disbursement counterparties for payment requests"
+          actions={<Button onClick={startNew} blockMobile><Plus size={15} /> New Supplier</Button>} />
 
-      <Toolbar className="mb-4">
-        <div className="relative flex-1 sm:max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-3)' }} />
-          <input className="form-input" style={{ paddingLeft: 34 }} placeholder="Search suppliers…"
-            value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
-        </div>
-      </Toolbar>
+        <Toolbar className="mb-4">
+          <div className="relative flex-1 sm:max-w-xs">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-3)' }} />
+            <input className="form-input" style={{ paddingLeft: 34 }} placeholder="Search suppliers…"
+              value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          </div>
+        </Toolbar>
 
-      <ResponsiveTable columns={columns} rows={suppliers} loading={isLoading} onRowClick={startEdit}
-        empty={<div className="card"><EmptyState icon={<Package size={30} />} title="No suppliers yet" sub="Add a supplier to start raising payments" action={<Button onClick={startNew}><Plus size={15} /> New Supplier</Button>} /></div>} />
+        <ResponsiveTable columns={columns} rows={suppliers} loading={isLoading} onRowClick={startEdit}
+          empty={<div className="card"><EmptyState icon={<Package size={30} />} title="No suppliers yet" sub="Add a supplier to start raising payments" action={<Button onClick={startNew}><Plus size={15} /> New Supplier</Button>} /></div>} />
 
-      {meta && <Pagination page={page} totalPages={meta.totalPages} total={meta.total} pageSize={PAGE_SIZE} onPage={setPage} label="suppliers" />}
+        {meta && <Pagination page={page} totalPages={meta.totalPages} total={meta.total} pageSize={PAGE_SIZE} onPage={setPage} label="suppliers" />}
 
+      </div>
       <Dialog open={open} onClose={() => setOpen(false)} icon={<Package size={15} />}
         title={editing ? 'Edit supplier' : 'New supplier'} subtitle={editing ? editing.name : 'Add a disbursement counterparty'}
         footer={<>
-          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button onClick={save} disabled={action.isPending}>{action.isPending ? 'Saving…' : 'Save'}</Button>
+          <GhostButton onClick={() => setOpen(false)}>Cancel</GhostButton>
+          <AmberButton onClick={save} disabled={action.isPending}>{action.isPending ? 'Saving…' : 'Save'}</AmberButton>
         </>}>
         <Field label="Name" error={err}><input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Acme Supplies Ltd" /></Field>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
@@ -98,6 +100,6 @@ export default function SuppliersPage() {
           </label>
         )}
       </Dialog>
-    </div>
+    </>
   );
 }

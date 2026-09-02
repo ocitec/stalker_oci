@@ -9,7 +9,7 @@ import {
 import { useTransactions } from '@/lib/hooks/useControlChain';
 import {
   PageHeader, Toolbar, Button, KpiCard, ResponsiveTable, Column, EmptyState,
-  StatusPill, Dialog, Field, SkeletonCard, Pagination,
+  StatusPill, Dialog, Field, SkeletonCard, Pagination, AmberButton, GhostButton,
 } from '@/components/ui';
 
 const PAGE_SIZE = 20;
@@ -120,67 +120,69 @@ export default function PaymentsPage() {
   };
 
   return (
-    <div className="animate-fade-in space-y-6">
-      <PageHeader title="Payment Control" subtitle="Supplier disbursements, approvals and confirmations"
-        actions={<Button onClick={openNew} blockMobile><Plus size={15} /> New Payment</Button>} />
+    <>
+      <div className="animate-fade-in space-y-6">
+        <PageHeader title="Payment Control" subtitle="Supplier disbursements, approvals and confirmations"
+          actions={<Button onClick={openNew} blockMobile><Plus size={15} /> New Payment</Button>} />
 
-      {/* KPIs */}
-      {dashLoading ? (
-        <div className="stat-grid">{Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}</div>
-      ) : (
-        <div className="stat-grid">
-          <KpiCard label="Due Today" value={p.dueToday} accent="var(--amber)" />
-          <KpiCard label="Overdue" value={p.overdue} accent={p.overdue ? 'var(--red)' : undefined} />
-          <KpiCard label="Awaiting Confirmation" value={p.awaitingConfirmation} accent="var(--indigo-2)" />
-          <KpiCard label="Pending Disbursement" value={fmtCurrency(dash?.totalPendingDisbursement ?? 0)} />
-        </div>
-      )}
+        {/* KPIs */}
+        {dashLoading ? (
+          <div className="stat-grid">{Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}</div>
+        ) : (
+          <div className="stat-grid">
+            <KpiCard label="Due Today" value={p.dueToday} accent="var(--amber)" />
+            <KpiCard label="Overdue" value={p.overdue} accent={p.overdue ? 'var(--red)' : undefined} />
+            <KpiCard label="Awaiting Confirmation" value={p.awaitingConfirmation} accent="var(--indigo-2)" />
+            <KpiCard label="Pending Disbursement" value={fmtCurrency(dash?.totalPendingDisbursement ?? 0)} />
+          </div>
+        )}
 
-      {/* Account balances + exceptions */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card p-4">
-          <div className="flex items-center gap-2 mb-3"><Wallet size={14} style={{ color: 'var(--text-3)' }} /><span className="text-xs font-semibold" style={{ color: 'var(--text-3)' }}>ACCOUNT BALANCES</span></div>
-          <div className="space-y-2">
-            {(dash?.accountBalances ?? []).map((a: any) => (
-              <div key={a.id} className="flex items-center justify-between gap-3">
-                <span className="text-xs truncate" style={{ color: 'var(--text-2)' }}>{a.name}</span>
-                <span className="mono text-xs font-bold" style={{ color: a.belowMinimum ? 'var(--red)' : 'var(--text)' }}>{fmtCurrency(a.currentBalance, a.currency)}</span>
-              </div>
-            ))}
-            {!dash?.accountBalances?.length && <p className="text-xs" style={{ color: 'var(--text-3)' }}>No accounts yet.</p>}
+        {/* Account balances + exceptions */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="card p-4">
+            <div className="flex items-center gap-2 mb-3"><Wallet size={14} style={{ color: 'var(--text-3)' }} /><span className="text-xs font-semibold" style={{ color: 'var(--text-3)' }}>ACCOUNT BALANCES</span></div>
+            <div className="space-y-2">
+              {(dash?.accountBalances ?? []).map((a: any) => (
+                <div key={a.id} className="flex items-center justify-between gap-3">
+                  <span className="text-xs truncate" style={{ color: 'var(--text-2)' }}>{a.name}</span>
+                  <span className="mono text-xs font-bold" style={{ color: a.belowMinimum ? 'var(--red)' : 'var(--text)' }}>{fmtCurrency(a.currentBalance, a.currency)}</span>
+                </div>
+              ))}
+              {!dash?.accountBalances?.length && <p className="text-xs" style={{ color: 'var(--text-3)' }}>No accounts yet.</p>}
+            </div>
+          </div>
+          <div className="card p-4">
+            <div className="flex items-center gap-2 mb-3"><AlertTriangle size={14} style={{ color: 'var(--red)' }} /><span className="text-xs font-semibold" style={{ color: 'var(--text-3)' }}>OPEN EXCEPTIONS ({exceptions.length})</span></div>
+            <div className="space-y-2">
+              {exceptions.slice(0, 5).map((e: any) => (
+                <div key={e.id} className="flex items-center justify-between gap-2">
+                  <div className="min-w-0"><p className="text-xs font-medium truncate" style={{ color: 'var(--text-2)' }}>{label(e.type)}</p><p className="text-[10px] truncate" style={{ color: 'var(--text-3)' }}>{e.paymentRequest?.reference}</p></div>
+                  <button className="chip" style={{ minHeight: 30 }} onClick={() => action.mutate({ action: 'resolveException', id: e.id })}>Resolve</button>
+                </div>
+              ))}
+              {!exceptions.length && <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--green)' }}><CheckCircle2 size={14} /> No open exceptions</div>}
+            </div>
           </div>
         </div>
-        <div className="card p-4">
-          <div className="flex items-center gap-2 mb-3"><AlertTriangle size={14} style={{ color: 'var(--red)' }} /><span className="text-xs font-semibold" style={{ color: 'var(--text-3)' }}>OPEN EXCEPTIONS ({exceptions.length})</span></div>
-          <div className="space-y-2">
-            {exceptions.slice(0, 5).map((e: any) => (
-              <div key={e.id} className="flex items-center justify-between gap-2">
-                <div className="min-w-0"><p className="text-xs font-medium truncate" style={{ color: 'var(--text-2)' }}>{label(e.type)}</p><p className="text-[10px] truncate" style={{ color: 'var(--text-3)' }}>{e.paymentRequest?.reference}</p></div>
-                <button className="chip" style={{ minHeight: 30 }} onClick={() => action.mutate({ action: 'resolveException', id: e.id })}>Resolve</button>
-              </div>
-            ))}
-            {!exceptions.length && <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--green)' }}><CheckCircle2 size={14} /> No open exceptions</div>}
-          </div>
+
+        {/* Payment requests */}
+        <div>
+          <Toolbar className="mb-3">
+            <div className="segmented">
+              {STATUSES.map(s => (
+                <button key={s} className="chip" data-active={status === s} onClick={() => { setStatus(s); setPage(1); }}>{s ? label(s) : 'All'}</button>
+              ))}
+            </div>
+          </Toolbar>
+          <ResponsiveTable columns={columns} rows={payments} loading={isLoading} rowActions={rowActions}
+            empty={<div className="card"><EmptyState icon={<Banknote size={30} />} title="No payment requests" sub="Raise one from an approved transaction" action={<Button onClick={openNew}><Plus size={15} /> New Payment</Button>} /></div>} />
+          {meta && <Pagination page={page} totalPages={meta.totalPages} total={meta.total} pageSize={PAGE_SIZE} onPage={setPage} label="payments" />}
         </div>
+        
       </div>
-
-      {/* Payment requests */}
-      <div>
-        <Toolbar className="mb-3">
-          <div className="segmented">
-            {STATUSES.map(s => (
-              <button key={s} className="chip" data-active={status === s} onClick={() => { setStatus(s); setPage(1); }}>{s ? label(s) : 'All'}</button>
-            ))}
-          </div>
-        </Toolbar>
-        <ResponsiveTable columns={columns} rows={payments} loading={isLoading} rowActions={rowActions}
-          empty={<div className="card"><EmptyState icon={<Banknote size={30} />} title="No payment requests" sub="Raise one from an approved transaction" action={<Button onClick={openNew}><Plus size={15} /> New Payment</Button>} /></div>} />
-        {meta && <Pagination page={page} totalPages={meta.totalPages} total={meta.total} pageSize={PAGE_SIZE} onPage={setPage} label="payments" />}
-      </div>
-
       {/* New payment request dialog */}
       <Dialog open={newOpen} onClose={() => setNewOpen(false)} icon={<Banknote size={15} />} title="New payment request" subtitle="Disburse against an approved transaction"
-        footer={<><Button variant="ghost" onClick={() => setNewOpen(false)}>Cancel</Button><Button onClick={createPr} disabled={action.isPending}>{action.isPending ? 'Creating…' : 'Create'}</Button></>}>
+        footer={<><GhostButton onClick={() => setNewOpen(false)}>Cancel</GhostButton><AmberButton onClick={createPr} disabled={action.isPending}>{action.isPending ? 'Creating…' : 'Create'}</AmberButton></>}>
         <Field label="Approved transaction" error={err}>
           <select className="form-input" value={form.transactionId} onChange={e => onPickTxn(e.target.value)}>
             <option value="">Select transaction…</option>
@@ -207,7 +209,7 @@ export default function PaymentsPage() {
 
       {/* Process dialog */}
       <Dialog open={!!proc} onClose={() => setProc(null)} icon={<Banknote size={15} />} title="Process payment" subtitle={proc?.reference}
-        footer={<><Button variant="ghost" onClick={() => setProc(null)}>Cancel</Button><Button onClick={doProcess} disabled={action.isPending}>{action.isPending ? 'Processing…' : 'Disburse'}</Button></>}>
+        footer={<><GhostButton onClick={() => setProc(null)}>Cancel</GhostButton><AmberButton onClick={doProcess} disabled={action.isPending}>{action.isPending ? 'Processing…' : 'Disburse'}</AmberButton></>}>
         <Field label="Payment method">
           <select className="form-input" value={procForm.paymentMethod} onChange={e => setProcForm({ ...procForm, paymentMethod: e.target.value })}>
             {['BANK_TRANSFER', 'CHEQUE', 'CASH', 'CARD', 'MOBILE_MONEY', 'OTHER'].map(m => <option key={m} value={m}>{label(m)}</option>)}
@@ -219,9 +221,9 @@ export default function PaymentsPage() {
 
       {/* Confirm dialog */}
       <Dialog open={!!confirmPr} onClose={() => setConfirmPr(null)} icon={<CheckCircle2 size={15} />} title="Confirm payment" subtitle={confirmPr?.reference}
-        footer={<><Button variant="ghost" onClick={() => setConfirmPr(null)}>Cancel</Button><Button variant="success" onClick={doConfirm} disabled={action.isPending || !confRef.trim()}>{action.isPending ? 'Confirming…' : 'Confirm'}</Button></>}>
+        footer={<><GhostButton onClick={() => setConfirmPr(null)}>Cancel</GhostButton><AmberButton onClick={doConfirm} disabled={action.isPending || !confRef.trim()}>{action.isPending ? 'Confirming…' : 'Confirm'}</AmberButton></>}>
         <Field label="Confirmation reference"><input className="form-input" value={confRef} onChange={e => setConfRef(e.target.value)} placeholder="Cleared payment reference" /></Field>
       </Dialog>
-    </div>
+    </>
   );
 }

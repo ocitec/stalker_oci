@@ -22,6 +22,7 @@ model Organization {
   paymentRequests     PaymentRequest[]
   replenishments      Replenishment[]
   paymentExceptions   PaymentException[]
+  receipts            Receipt[]
 
   @@index([name])
   @@map("organizations")
@@ -57,6 +58,7 @@ model User {
   replenishmentsRequested Replenishment[]    @relation("ReplenishmentRequestedBy")
   replenishmentDecisions  Replenishment[]    @relation("ReplenishmentDecisionBy")
   paymentExceptionsResolved PaymentException[]
+  receipts                Receipt[]
 
   @@index([email])
   @@index([organizationId])
@@ -100,6 +102,7 @@ model Client {
   salesRequests          SalesRequest[]
   creditRequests         CreditRequest[]
   transactions           Transaction[]
+  receipts               Receipt[]
   // Payment Control (Phase 2) has no direct Client relation; suppliers/accounts are org-scoped.
 
   @@index([organizationId])
@@ -145,6 +148,7 @@ model PaymentRecord {
   id          String    @id @default(cuid())
   invoiceId   String    @map("invoice_id")
   paidBy      String?   @map("paid_by")
+  receiptId   String?   @map("receipt_id")
   amount      Decimal   @db.Decimal(15, 2)
   paymentDate DateTime  @default(now()) @map("payment_date")
   notes       String?
@@ -154,13 +158,47 @@ model PaymentRecord {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt      @map("updated_at")
 
-  invoice  Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  user     User?   @relation(fields: [paidBy],    references: [id])
+  invoice  Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [paidBy],    references: [id])
+  receipt  Receipt? @relation(fields: [receiptId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
   @@index([paidBy])
   @@index([isReverted])
+  @@index([receiptId])
   @@map("payment_records")
+}
+
+/// A single client payment allocated across outstanding invoices (oldest → newest).
+/// Each allocation is recorded as a PaymentRecord tagged with this receipt, so the
+/// existing invoice-settlement data model and history remain the source of truth.
+model Receipt {
+  id                String         @id @default(cuid())
+  organizationId    String         @map("organization_id")
+  reference         String         @unique
+  clientId          String         @map("client_id")
+  paymentDate       DateTime       @default(now()) @map("payment_date")
+  totalAmount       Decimal        @map("total_amount")        @db.Decimal(15, 2)
+  allocatedAmount   Decimal        @default(0) @map("allocated_amount")   @db.Decimal(15, 2)
+  unallocatedAmount Decimal        @default(0) @map("unallocated_amount") @db.Decimal(15, 2)
+  outstandingBefore Decimal        @default(0) @map("outstanding_before") @db.Decimal(15, 2)
+  currency          String         @default("NGN")
+  paymentMethod     PaymentMethod? @map("payment_method")
+  paymentReference  String?        @map("payment_reference")
+  notes             String?
+  createdById       String?        @map("created_by_id")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  client       Client          @relation(fields: [clientId], references: [id])
+  createdBy    User?           @relation(fields: [createdById], references: [id])
+  allocations  PaymentRecord[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([createdAt])
+  @@map("receipts")
 }
 
 model FollowUp {

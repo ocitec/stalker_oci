@@ -10,7 +10,7 @@ import {
   LogOut, Settings, ChevronRight, Users, Sun, Moon,
   User, BarChart2, X,
   ShoppingCart, ShieldCheck, ArrowLeftRight,
-  Banknote, Package, Landmark,
+  Banknote, Package, Landmark, Receipt,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/store/auth.store';
@@ -45,6 +45,7 @@ const BASE_NAV_GROUPS = [
     label: 'Receivables',
     items: [
       { href: '/dashboard/invoices',  icon: FileText,  label: 'Invoices' },
+      { href: '/dashboard/receipts',  icon: Receipt,   label: 'Receipts' },
       { href: '/dashboard/clients',   icon: Building2, label: 'Clients' },
       { href: '/dashboard/followups', icon: Clock,     label: 'Follow-ups' },
     ],

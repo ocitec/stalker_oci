@@ -124,6 +124,14 @@ export const clientsApi = {
     api.post('/clients/merge', { survivorId, duplicateIds }),
 };
 
+export const receiptsApi = {
+  list:        (params?: any)   => api.get('/receipts', { params }),
+  get:         (id: string)     => api.get(`/receipts/${id}`),
+  outstanding: (clientId: string) => api.get('/receipts/outstanding', { params: { clientId } }),
+  preview:     (data: any)      => api.post('/receipts/preview', data),
+  create:      (data: any)      => api.post('/receipts', data),
+};
+
 export const invoicesApi = {
   list:    (params?: any) => api.get('/invoices', { params }),
   get:     (id: string)   => api.get(`/invoices/${id}`),

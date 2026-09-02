@@ -13,6 +13,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ClientsModule } from './modules/clients/clients.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { ReceiptsModule } from './modules/receipts/receipts.module';
 import { FollowUpsModule } from './modules/followups/followups.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
@@ -89,6 +90,7 @@ import {
     UsersModule,
     ClientsModule,
     InvoicesModule,
+    ReceiptsModule,
     FollowUpsModule,
     AnalyticsModule,
     AlertsModule,
