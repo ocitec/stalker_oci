@@ -13,6 +13,9 @@ import { EmailJobName } from '../email/email.types';
 import { computeRecommendedAction } from '../../common/utils/action-recommendation.util';
 import { AuditService } from '../../common/services/audit.service';
 
+/** Invoice statuses that still carry an outstanding balance. */
+const OUTSTANDING_STATUSES: InvoiceStatus[] = ['PENDING', 'DUE_TODAY', 'OVERDUE', 'PARTIALLY_PAID'];
+
 @Injectable()
 export class ClientsService {
   private readonly logger = new Logger(ClientsService.name);
@@ -97,8 +100,8 @@ export class ClientsService {
         include: {
           _count: { select: { invoices: true, slaViolations: true } },
           invoices: {
-            where: { status: { in: ['OVERDUE', 'DUE_TODAY', 'PENDING'] } },
-            select: { invoiceAmount: true, status: true },
+            where: { status: { in: OUTSTANDING_STATUSES } },
+            select: { invoiceAmount: true, amountPaid: true, remainingBalance: true, status: true },
           },
         },
       }),
@@ -154,8 +157,17 @@ export class ClientsService {
       else if (recentPdi < overallPdi - 8) riskTrend = 'DETERIORATING';
     }
 
-    const outstandingAmount = enriched.outstandingAmount ?? 0;
-    const utilizationPercent = enriched.utilizationPercent ?? 0;
+    // Outstanding must reflect the true remaining balance across ALL active invoices —
+    // not just the 10 most-recent shown in the drawer, and never the full invoiceAmount.
+    // This keeps Recommended Action, Credit Utilisation and the client table consistent
+    // after a receipt/payment settles or partially settles invoices.
+    const activeInvoices = await this.prisma.invoice.findMany({
+      where:  { clientId: id, status: { in: OUTSTANDING_STATUSES } },
+      select: { invoiceAmount: true, amountPaid: true, remainingBalance: true, status: true },
+    });
+    const creditLimit = Number(client.creditLimit ?? 0);
+    const outstandingAmount = this.sumOutstanding(activeInvoices);
+    const utilizationPercent = creditLimit > 0 ? Math.round((outstandingAmount / creditLimit) * 100) : 0;
 
     const overdueInvoices = (client as any).invoices?.filter(
       (inv: any) => ['OVERDUE', 'PARTIALLY_PAID'].includes(inv.status),
@@ -177,6 +189,8 @@ export class ClientsService {
 
     return {
       ...enriched,
+      outstandingAmount,
+      utilizationPercent,
       riskExplanation: {
         avgDelayDays,
         slaBreachCount: slaViolations.length,
@@ -546,17 +560,31 @@ export class ClientsService {
     });
   }
 
+  /**
+   * Sum the true remaining balance across a set of (already active-filtered) invoices.
+   * Uses remainingBalance — falling back to invoiceAmount − amountPaid for legacy rows
+   * where remainingBalance was never populated — so partial payments and receipts are
+   * reflected accurately (never the full original invoiceAmount).
+   */
+  private sumOutstanding(invoices: any[]): number {
+    const total = (invoices ?? []).reduce((sum: number, inv: any) => {
+      const remaining = inv.remainingBalance != null
+        ? Number(inv.remainingBalance)
+        : Number(inv.invoiceAmount ?? 0) - Number(inv.amountPaid ?? 0);
+      return sum + Math.max(0, remaining);
+    }, 0);
+    return Math.round(total * 100) / 100;
+  }
+
   private enrichClient(client: any) {
-    const outstanding = client.invoices?.reduce(
-      (sum: number, inv: any) =>
-        inv.status !== 'PAID' ? sum + Number(inv.invoiceAmount) : sum, 0,
-    ) ?? 0;
+    const outstanding = this.sumOutstanding(client.invoices);
+    const creditLimit = Number(client.creditLimit ?? 0);
 
     return {
       ...client,
       outstandingAmount: outstanding,
-      utilizationPercent: client.creditLimit > 0
-        ? Math.round((outstanding / Number(client.creditLimit)) * 100)
+      utilizationPercent: creditLimit > 0
+        ? Math.round((outstanding / creditLimit) * 100)
         : 0,
     };
   }
